@@ -1,0 +1,18 @@
+# ---- Obsidian: lokale/rechnerspezifische Dateien (NICHT teilen) ----
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+.trash/
+
+# ---- Obsidian Git Plugin: Daten/Verlauf ----
+.obsidian/plugins/obsidian-git/data.json
+
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ---- Claude Code lokale Einstellungen ----
+.claude/settings.local.json
