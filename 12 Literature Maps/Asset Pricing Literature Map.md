@@ -14,7 +14,9 @@ graph TD
   KX --> ZZ["Zhang/Zhou 2026<br>LLM Earnings Calls"]
   CPZ -. "SDF → Diskontsatz" .-> ICC["→ Valuation Map (ICC)"]
   GKX --> AIPM["Kelly/Kuznetsov/Malamud/Xu 2025-26<br>AI Pricing Models (Transformer-SDF)"]
+  GKX --> NNSDF["Wang/Cheng/Wang 2025<br>NewsNet-SDF (News-Embeddings + GAN)"]
+  ZZ -.verwandter Text-Kanal.-> NNSDF
 ```
 
-**Lesart:** Fundament [[Empirical Asset Pricing via Machine Learning]] → Überblick [[Financial Machine Learning (Survey)]] → Struktur-Linie [[Deep Learning in Asset Pricing]]/[[Teaching Economics to the Machines]] → Text-Linie [[LLMs for Asset Pricing – Earnings Calls]] → Fremdkapital [[Bond Risk Premiums with Machine Learning]] → Transformer-SDF [[Artificial Intelligence Asset Pricing Models]] (Cross-Asset-Attention als eigenständiger, nicht durch Modelltiefe ersetzbarer Hebel).
+**Lesart:** Fundament [[Empirical Asset Pricing via Machine Learning]] → Überblick [[Financial Machine Learning (Survey)]] → Struktur-Linie [[Deep Learning in Asset Pricing]]/[[Teaching Economics to the Machines]] → Text-Linie [[LLMs for Asset Pricing – Earnings Calls]] → Fremdkapital [[Bond Risk Premiums with Machine Learning]] → zwei konkurrierende SDF-Deep-Learning-Hebel: Cross-Asset-Attention [[Artificial Intelligence Asset Pricing Models]] vs. News-Text-Embeddings [[NewsNet-SDF]] (Provenienz deutlich niedriger, arXiv-Preprint ohne Top-Uni-Zugehörigkeit).
 **Brücke zur WU-Agenda:** [[Stochastischer Diskontfaktor]] → [[Discount Rate Estimation]] → [[Valuation Literature Map]] · Gaps: [[Gaps – Asset Pricing]]

@@ -36,7 +36,7 @@ Kein Peer-Review; Performance-Kurve sättigt bei 10 Blöcken noch nicht (Rechenk
 [[Stochastischer Diskontfaktor]] · [[Latent Risk Factors]] · [[Equity Risk Premium]]
 
 ## Related Papers
-[[Empirical Asset Pricing via Machine Learning]] · [[Deep Learning in Asset Pricing]] · [[Financial Machine Learning (Survey)]]
+[[Empirical Asset Pricing via Machine Learning]] · [[Deep Learning in Asset Pricing]] · [[Financial Machine Learning (Survey)]] · [[NewsNet-SDF]] (alternativer Hebel: Text-Embeddings statt Cross-Asset-Attention)
 
 ## Related Researchers
 [[Bryan Kelly]] · [[Markus Pelger]] (methodisch verwandt, nicht koautoriert)
