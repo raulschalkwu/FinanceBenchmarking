@@ -22,6 +22,12 @@ Infrastruktur.
 3. **Agent-agnostisch über Standards:** `AGENTS.md` (herstellerübergreifend),
    `CLAUDE.md` (Claude), eingechecktes `.mcp.json` – jeder Agent liest
    dieselben Spielregeln direkt aus dem Repo.
+4. **Git-Branching pro Subagent statt einem editierbaren Zustand:** Analog
+   [[SwarmResearch]] sollten offene, explorative Teilaufgaben (z. B.
+   Architektursuche) nicht auf einem einzigen Branch/Kontext laufen, sondern
+   jeder Teilversuch in einem eigenen Branch mit lokalem Kontext, gesteuert
+   von einer Orchestrator-Instanz mit globalem Überblick – das verhindert
+   vorzeitige Konvergenz auf eine einzige Lösungsidee.
 
 ## Architektur (5 Schichten)
 
@@ -61,7 +67,9 @@ Mensch merged. Nightly: voller Benchmark → Leaderboard.
       `AGENTS.md`, CI), Task-Board
 - [ ] **Woche 2:** MLflow auf Instituts-Server, DVC-Remote, GPU-Submit-Script
 - [ ] **Woche 3:** MCP-Verkabelung (GitHub-MCP, MLflow-MCP, Vault-Zugriff)
-      für alle Agent-Typen; Auto-Review via Claude GitHub Action
+      für alle Agent-Typen; Auto-Review via Claude GitHub Action; bei
+      Agent-zu-Agent-Delegation zusätzlich A2A-Protokoll evaluieren
+      (Sicherheits-Checkliste: [[Building A Secure Agentic AI Application Leveraging A2A Protocol]])
 - [ ] **Woche 4:** Pilot: Transformer-Projekt als Ernstfall-Test
 
 ## Offene Punkte
@@ -70,4 +78,6 @@ Mensch merged. Nightly: voller Benchmark → Leaderboard.
 - [ ] Namenskonvention Repos (AccountingBench, FinanceBenchmarking, …)
 
 ## Verwandte Notizen
-- [[Willkommen]]
+- [[AI Valuation Research Program]]
+- [[SwarmResearch]] (Orchestrator-Subagent-Architektur mit Git-Branching)
+- [[Building A Secure Agentic AI Application Leveraging A2A Protocol]] (Sicherheitsschicht für Agent-zu-Agent-Delegation)

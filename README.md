@@ -73,21 +73,31 @@ Damit greift die **Claude-Desktop-App** live auf den geöffneten Vault zu:
 
 ---
 
-## 4. Ordnerstruktur
+## 4. Ordnerstruktur (Research Knowledge Graph)
 
-| Ordner          | Zweck                                   |
-|-----------------|-----------------------------------------|
-| `00-Inbox`      | Schnelle, unsortierte Notizen           |
-| `10-Notes`      | Dauerhafte, aufbereitete Notizen        |
-| `20-Projects`   | Projektbezogene Notizen                 |
-| `30-References` | Quellen, Literatur, externe Referenzen  |
-| `90-Templates`  | Vorlagen (Obsidian Templates-Plugin)    |
-| `assets`        | Bilder & Anhänge                        |
+| Ordner                 | Zweck                                                   |
+|------------------------|----------------------------------------------------------|
+| `00 Research Agenda`   | Root-Note, Leseliste, Onboarding, WU-Opportunities        |
+| `01 Research Streams`  | 13 thematische Stränge (Asset Pricing, Valuation, ...)    |
+| `02 Concepts`          | Wiederkehrende Konzepte (SDF, ICC, Peer Selection, ...)   |
+| `03 Papers`            | Eine Notiz pro Paper (Metadata/Findings/Related)          |
+| `04 Researchers`       | Forscherprofile                                           |
+| `05 Universities`      | Instituts-/Uni-Notizen                                    |
+| `06 Methods`           | Methodennotizen (Random Forest, Transformer, LLMs, ...)   |
+| `07 Datasets`          | Datensätze                                                |
+| `08 Research Ideas`    | Publikationsfähige Ideen (Problem/Daten/Methode/Novelty)  |
+| `09 Open Questions`    | Research Gaps je Stream                                   |
+| `10 Trends`            | Emergente Themen                                          |
+| `11 Projects`          | Laufende WU-Projekte                                      |
+| `12 Literature Maps`   | Thematische Karten mit Mermaid-Diagrammen                 |
+| `90-Templates`         | Vorlagen (Obsidian Templates-Plugin)                      |
+| `assets`               | Bilder & Anhänge                                          |
 
 ---
 
 ## 5. Konventionen
-- Neue Notizen zuerst in `00-Inbox`, dann in die passende Ablage verschieben.
-- Notizen mit `[[Wikilinks]]` verknüpfen.
-- Tags im YAML-Frontmatter pflegen (`tags: [thema]`).
+- Notizen beginnen mit YAML-Frontmatter (`title`, `created`, `tags`).
+- Notizen mit `[[Wikilinks]]` verknüpfen; keine isolierten Notizen – jede neue Notiz
+  wird rückwärts von mindestens einem Stream, einer Literature Map oder einem
+  verwandten Paper verlinkt.
 - Häufig committen & pullen, um Konflikte klein zu halten.

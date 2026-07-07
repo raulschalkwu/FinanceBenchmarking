@@ -7,7 +7,7 @@ tags: [stream, cluster-d]
 Kern des WU-Fokus: fundamentale Unternehmensbewertung (DCF, Residualgewinn, Multiples) mit ML/AI verbessern.
 
 ## Kernpapiere
-[[Fundamental Analysis via Machine Learning]] · [[Residual Income Valuation and Stock Returns]] · [[Intrinsic Value]] · [[Teaching Economics to the Machines]] · [[AI-Enhanced Valuation – ML Forecasts in DCF und LBO]]
+[[Fundamental Analysis via Machine Learning]] · [[Residual Income Valuation and Stock Returns]] · [[Intrinsic Value]] · [[Teaching Economics to the Machines]] · [[AI-Enhanced Valuation – ML Forecasts in DCF und LBO]] · [[MacroLens]] (Benchmark: Public- vs. Private-Company-Valuation)
 
 ## Konzepte & Methoden
 [[Discounted Cash Flow]] · [[Residualgewinnmodell]] · [[Multiples-Bewertung]]
