@@ -44,6 +44,10 @@ COLLECTION = "vault"
 # damit der Mensch entscheidet. Für gemischt DE/EN einen mehrsprachigen Encoder
 # via EMBED_MODEL erwägen.
 THRESHOLD = 0.55
+# Erst ab dieser Ähnlichkeit wird "in bestehende Notiz ERGÄNZEN" vorgeschlagen.
+# 0.55–0.75 heißt nur "thematisch verwandt" (gut für Links), NICHT "dieselbe
+# Notiz" – sonst landet ein Paper z. B. in der Leseliste (00) statt in 03.
+INTO_THRESHOLD = 0.75
 STREAM_DIRS = ("01 Research Streams", "12 Literature Maps")
 
 # Heuristik: welcher Kanon-Ordner passt zu welchen Signalwörtern (nur ein Vorschlag).
@@ -115,6 +119,15 @@ def dedup_hits(draft_path: Path):
 
 
 def suggest_folder(text: str) -> str | None:
+    # Verlässlichste Quelle zuerst: die Frontmatter-Tags der (LLM-)Notiz.
+    fm, _ = split_frontmatter(text)
+    tags = fm.get("tags", "").lower()
+    if "paper" in tags:
+        return "03 Papers"
+    if "method" in tags:
+        return "06 Methods"
+    if "concept" in tags or "konzept" in tags:
+        return "02 Concepts"
     low = text.lower()
     scores = {f: sum(low.count(w) for w in ws) for f, ws in FOLDER_HINTS.items()}
     best = max(scores, key=scores.get)
@@ -139,15 +152,17 @@ def cmd_plan(draft: Path) -> int:
                 flag = "  ← WARN (prüfen!)" if h["sim"] >= THRESHOLD else ""
                 print(f"    {h['sim']:.2f}  [[{h['note']}]]  ({h['path']}){flag}")
         top = note_hits[0] if note_hits else None
-        if top and top["sim"] >= THRESHOLD:
-            print(f"\nVerdikt:          ERGÄNZEN prüfen – ähnelt [[{top['note']}]] "
-                  f"({top['sim']:.2f})")
+        if top and top["sim"] >= INTO_THRESHOLD:
+            print(f"\nVerdikt:          ERGÄNZEN prüfen – sehr ähnlich zu "
+                  f"[[{top['note']}]] ({top['sim']:.2f})")
             print(f"  → apply --into \"{top['path']}\"  (oder falls doch neu: --folder …)")
         else:
             folder = suggest_folder(text) or "(bitte wählen)"
-            print("\nVerdikt:          NEU ANLEGEN – kein starker Treffer "
-                  f"(bester {top['sim']:.2f} < {THRESHOLD})" if top else
-                  "\nVerdikt:          NEU ANLEGEN")
+            if top:
+                print(f"\nVerdikt:          NEU ANLEGEN – verwandt, aber kein "
+                      f"Duplikat (bester {top['sim']:.2f} < {INTO_THRESHOLD})")
+            else:
+                print("\nVerdikt:          NEU ANLEGEN")
             print(f"  → apply --folder \"{folder}\"")
         backlinks = [h for h in hits
                      if any(h["path"].startswith(d) for d in STREAM_DIRS)]
@@ -255,8 +270,16 @@ def cmd_apply(a) -> int:
 
     # ---- Optional: Branch/Commit/Push ----
     if a.push:
-        branch = a.branch or f"promote/{safe_filename(title).lower().replace(' ', '-')}"
-        git("checkout", "-b", branch)
+        # Branch-Name strikt säubern (Steuer-/Sonderzeichen brechen checkout -b,
+        # und ohne Abbruch landet der Commit sonst still auf dem aktuellen Branch).
+        slug = re.sub(r"[^a-z0-9-]+", "-", title.lower()).strip("-") or "notiz"
+        branch = a.branch or f"promote/{slug[:60]}"
+        co = subprocess.run(["git", "checkout", "-b", branch], cwd=str(ROOT),
+                            capture_output=True, text=True)
+        if co.returncode != 0:
+            print(f"FEHLER: Branch '{branch}' konnte nicht angelegt werden:\n"
+                  f"{co.stderr.strip()}\n→ Nichts committet.")
+            return 1
         rel_target = str(target.relative_to(ROOT))
         rel_back = str(backlink.relative_to(ROOT))
         git("add", rel_target, rel_back)

@@ -128,11 +128,16 @@ def summarize(raw_text: str, title_hint: str = "") -> str:
     )
     client = anthropic.Anthropic()
     msg = client.messages.create(
-        model=MODEL, max_tokens=2000,
+        model=MODEL, max_tokens=4096,
         system=system,
         messages=[{"role": "user", "content": user}],
     )
     note = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    if msg.stop_reason == "max_tokens":
+        raise RuntimeError("Zusammenfassung wurde abgeschnitten (max_tokens) – "
+                           "Notiz unvollständig, nicht gespeichert.")
+    if "## Related" not in note:
+        raise RuntimeError("Zusammenfassung unvollständig (## Related fehlt).")
     return sanitize_links(note.strip(), set(allowed))
 
 
