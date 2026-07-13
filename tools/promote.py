@@ -142,6 +142,17 @@ def cmd_plan(draft: Path) -> int:
     print(f"\n=== Promotion-Plan für {draft.relative_to(ROOT)} ===")
     print(f"Titel:            {title}")
 
+    # Deterministischer Check VOR dem Embedding: gibt es im Kanon schon eine
+    # Notiz mit exakt diesem Titel? (Embedding-Ähnlichkeit zweier unabhängiger
+    # Zusammenfassungen desselben Papers kann knapp ausfallen.)
+    same = [p for p in ROOT.rglob(f"{safe_filename(title)}.md")
+            if re.match(r"^\d\d ", str(p.relative_to(ROOT)))]
+    if same:
+        print(f"⛔ EXISTIERT BEREITS im Kanon (Titel identisch): "
+              f"{same[0].relative_to(ROOT)}")
+        print("   → Keine neuen Erkenntnisse? Draft verwerfen. "
+              "Neue Erkenntnisse? Gezielt ergänzen (--into).")
+
     try:
         hits = dedup_hits(draft)
         # Nächste bestehende Notizen IMMER anzeigen (Entscheidungshilfe).

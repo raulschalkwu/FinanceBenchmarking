@@ -187,6 +187,12 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
       <button type='submit'>✅ Promoten</button>
       <a class='btn' style='background:#6b7280' href='/'>Abbrechen</a>
     </form>
+    <form method='POST' action='/discard' class='card'>
+      <input type='hidden' name='draft' value='{html.escape(draft_rel)}'>
+      <p class='muted'>Schon im Kanon vorhanden oder doch nicht brauchbar?
+      Draft löschen (nur die Datei im Silo, der Kanon bleibt unberührt).</p>
+      <button type='submit' style='background:#dc2626'>🗑 Draft verwerfen</button>
+    </form>
     """)
 
 
@@ -295,6 +301,19 @@ class Handler(BaseHTTPRequestHandler):
             rel = str(dest.relative_to(ROOT))
             plan = run(["tools/promote.py", "plan", rel])
             return self._send(analyze_page(rel, plan, note_warn, route))
+
+        if self.path == "/discard":
+            f = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
+            target = (ROOT / f.get("draft", "")).resolve()
+            drafts_root = (ROOT / "drafts").resolve()
+            # Sicherheitsgrenze: nur Dateien im drafts/-Baum löschbar.
+            if not str(target).startswith(str(drafts_root) + "/") or not target.is_file():
+                return self._send(page("<p>Ungültiger Pfad. <a href='/'>zurück</a></p>"), 400)
+            target.unlink()
+            return self._send(page(
+                f"<h1>🗑 Verworfen</h1><p><code>{html.escape(f.get('draft',''))}</code> "
+                f"wurde gelöscht. Der Kanon ist unberührt.</p>"
+                f"<p><a class='btn' href='/'>Neue Datei</a></p>"))
 
         if self.path == "/promote":
             f = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
