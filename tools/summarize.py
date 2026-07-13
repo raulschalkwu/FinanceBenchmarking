@@ -25,7 +25,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / ".vectordb"
 CANON_RE = re.compile(r"^\d\d ")
 MODEL = os.environ.get("SUMMARY_MODEL", "claude-sonnet-5")
-MAX_CHARS = 45000  # so viel Rohtext geben wir dem Modell (Prosa reicht)
+# Das Modell soll das GANZE Paper sehen (keine übersehenen Details im hinteren
+# Teil). 400k Zeichen ≈ 100k Tokens – deckt praktisch jedes Paper ab; Claudes
+# Fenster ist 200k Tokens. Nur Buch-große Dokumente würden noch gekürzt.
+MAX_CHARS = 400_000
 
 STYLE_EXAMPLE = """---
 title: "Empirical Asset Pricing via Machine Learning"
