@@ -127,7 +127,12 @@ def home():
     """)
 
 
-def analyze_page(draft_rel: str, plan_out: str):
+def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None):
+    note_md = (ROOT / draft_rel).read_text(encoding="utf-8")
+    warn_html = (f"<div class='card' style='border-color:#f59e0b'>⚠️ "
+                 f"{html.escape(note_warn)}</div>") if note_warn else ""
+    note_html = (f"<h2>Erzeugte Notiz (Vorschau)</h2>"
+                 f"<pre>{html.escape(note_md.strip())}</pre>")
     # Vorschläge aus dem plan-Output ziehen (für Vorauswahl).
     sug_folder = None
     m = re.search(r'--folder "([^"]+)"', plan_out)
@@ -145,6 +150,8 @@ def analyze_page(draft_rel: str, plan_out: str):
     return page(f"""
     <h1>🔎 Analyse</h1>
     <p class='muted'>Draft: <code>{html.escape(draft_rel)}</code></p>
+    {warn_html}
+    {note_html}
     <h2>Automatischer Vorschlag (Dedup + Ordner + Backlinks)</h2>
     <pre>{html.escape(plan_out.strip() or '(kein Output)')}</pre>
 
@@ -241,12 +248,23 @@ class Handler(BaseHTTPRequestHandler):
             silo_dir.mkdir(parents=True, exist_ok=True)
             dest = silo_dir / safe
             title = fields.get("title", "").strip()
-            if title and not text.lstrip().startswith("---"):
-                text = f"---\ntitle: {title}\n---\n\n{text}"
+
+            # Verständnis-Schritt: Rohtext -> saubere, vernetzte Notiz (LLM).
+            note_warn = None
+            try:
+                sys.path.insert(0, str(ROOT / "tools"))
+                from summarize import summarize
+                text = summarize(text, title or Path(fname).stem)
+            except Exception as e:
+                note_warn = (f"LLM-Zusammenfassung übersprungen ({e}). "
+                             f"Rohtext gespeichert – bitte manuell aufbereiten.")
+                if title and not text.lstrip().startswith("---"):
+                    text = f"---\ntitle: {title}\n---\n\n{text}"
+
             dest.write_text(text, encoding="utf-8")
             rel = str(dest.relative_to(ROOT))
             plan = run(["tools/promote.py", "plan", rel])
-            return self._send(analyze_page(rel, plan))
+            return self._send(analyze_page(rel, plan, note_warn))
 
         if self.path == "/promote":
             f = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
