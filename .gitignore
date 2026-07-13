@@ -16,3 +16,11 @@ Thumbs.db
 
 # ---- Claude Code lokale Einstellungen ----
 .claude/settings.local.json
+
+# ---- KI-Layer: lokale Vektordatenbank (wird lokal neu aufgebaut, NICHT teilen) ----
+.vectordb/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/

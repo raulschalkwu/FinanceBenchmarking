@@ -5,6 +5,18 @@ des Institute for Accounting & Auditing, WU Wien zum Thema AI/ML in Valuation
 & Accounting), keine Code-Basis. Der Inhalt sind Markdown-Notizen, die im Team
 über Git geteilt werden.
 
+## Kollaborations-Architektur (Silos + Promotion)
+- **Kanon** = Ordner `00`–`12` (der geteilte Wissensgraph). Wird nur über den
+  Promotion-Schritt geändert (siehe `PROMOTION.md`) – von Maintainern.
+- **Drafts** = `drafts/<name>/`. Konfliktfreie private Schreib-Silos; hier
+  schreiben Menschen und Agenten roh, ohne Merge-Konflikte.
+- Der KI-Layer (`tools/embed_sync.py` → lokale ChromaDB) macht den Kanon
+  semantisch durchsuchbar und erlaubt Dedup-Prüfung (`tools/check_dedup.py`).
+- Agent-agnostische Regeln stehen zusätzlich in `AGENTS.md`.
+- **Hinweis:** Wenn du als Maintainer/Assistent direkt am Kanon arbeitest (wie in
+  diesem Setup), gilt weiterhin die Standing Instruction unten. Für Beiträge von
+  Team-Agenten gilt der Silo→Promotion-Weg.
+
 ## Standardverhalten: automatisches Ablegen (STANDING INSTRUCTION)
 - **Vor jeder inhaltlichen Anfrage** (Paper-Zusammenfassung, Konzept-Frage,
   Recherche etc.) zuerst im Vault suchen (Grep/Glob über alle Ordner), ob es

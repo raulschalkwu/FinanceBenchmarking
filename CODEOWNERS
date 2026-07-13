@@ -1,0 +1,15 @@
+# CODEOWNERS – Review-Routing.
+#
+# Hinweis: Die Kanon-Ordner ("00 Research Agenda" usw.) enthalten Leerzeichen,
+# die CODEOWNERS nicht sauber matchen kann. Die eigentliche Durchsetzung der
+# Silo-Regel läuft daher über die CI-Prüfung tools/check_write_scope.py.
+# Dieses CODEOWNERS setzt zusätzlich einen Default-Reviewer für den ganzen Vault.
+
+*   @raulschalkwu
+
+# Werkzeuge & Automatik nur durch Maintainer ändern:
+/tools/                     @raulschalkwu
+/.github/                   @raulschalkwu
+/AGENTS.md                  @raulschalkwu
+/CLAUDE.md                  @raulschalkwu
+/PROMOTION.md               @raulschalkwu

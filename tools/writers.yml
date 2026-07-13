@@ -1,0 +1,12 @@
+# Zuordnung GitHub-Benutzer -> Schreibrechte im Vault.
+# Von der CI (tools/check_write_scope.py) gelesen.
+
+# Maintainer duerfen den Kanon (Ordner 00-12) aendern = fuehren die Promotion durch.
+maintainers:
+  - raulschalkwu
+
+# Alle anderen Schreiber (Menschen UND Agenten) duerfen nur in ihren eigenen
+# drafts/<name>/-Ordner schreiben. Format:  github-username: drafts-ordnername
+writers:
+  raulschalkwu: user_raul
+  agent_example: agent_example

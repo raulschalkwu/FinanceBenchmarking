@@ -1,0 +1,36 @@
+name: Vault Checks
+
+# Läuft bei jedem PR und Push: prüft Link-Integrität und Schreibbereich.
+# (Vektor-Sync/Dedup laufen NICHT in der CI – sie brauchen ein Modell und
+#  laufen lokal bzw. auf dem Instituts-Server.)
+
+on:
+  pull_request:
+  push:
+    branches: ["**"]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Link-Integrität (keine toten Wikilinks, keine isolierten Notizen)
+        run: python tools/check_links.py
+
+      - name: Schreibbereich (Nicht-Maintainer nur im eigenen drafts-Ordner)
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          echo "Geänderte Dateien:"; echo "$CHANGED"
+          python tools/check_write_scope.py $CHANGED

@@ -1,0 +1,5 @@
+# Abhängigkeiten für den KI-Layer (Vektor-Sync + Dedup).
+# Der Link-Check (check_links.py) und die Schreibbereich-Kontrolle
+# (check_write_scope.py) brauchen KEINE Abhängigkeiten – reines Python.
+chromadb>=0.5
+sentence-transformers>=3.0
