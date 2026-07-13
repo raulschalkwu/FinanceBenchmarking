@@ -16,6 +16,7 @@ import html
 import re
 import subprocess
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -44,6 +45,17 @@ def backlink_targets():
         if base.is_dir():
             out += [str(p.relative_to(ROOT)) for p in sorted(base.glob("*.md"))]
     return out
+
+
+def _index_fulltext_bg(doc_id: str, text: str, source: str):
+    """Hintergrund-Thread: Volltext in die 'fulltext'-Collection einbetten."""
+    try:
+        sys.path.insert(0, str(ROOT / "tools"))
+        from fulltext_index import index_text
+        n = index_text(doc_id, text, source)
+        print(f"[fulltext] {doc_id}: {n} Chunks indexiert", flush=True)
+    except Exception as e:
+        print(f"[fulltext] {doc_id}: Indexierung fehlgeschlagen: {e}", flush=True)
 
 
 def run(cmd):
@@ -152,7 +164,9 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
                 bl_default = mm.group(1); break
     return page(f"""
     <h1>🔎 Analyse</h1>
-    <p class='muted'>Draft: <code>{html.escape(draft_rel)}</code></p>
+    <p class='muted'>Draft: <code>{html.escape(draft_rel)}</code> ·
+    Volltext wird im Hintergrund indexiert (Collection <code>fulltext</code>,
+    Suche: <code>tools/fulltext_index.py search "…"</code>)</p>
     {warn_html}
     {note_html}
     <h2>Automatischer Vorschlag (Dedup + Ordner + Backlinks)</h2>
@@ -251,6 +265,13 @@ class Handler(BaseHTTPRequestHandler):
             silo_dir.mkdir(parents=True, exist_ok=True)
             dest = silo_dir / safe
             title = fields.get("title", "").strip()
+
+            # Volltext separat sichern: Hintergrund-Indexierung in die
+            # 'fulltext'-Collection (getrennt von 'vault' -> Dedup bleibt sauber).
+            raw = text
+            threading.Thread(
+                target=_index_fulltext_bg, args=(stem, raw, Path(fname).name),
+                daemon=True).start()
 
             # Verständnis-Schritt: Rohtext -> saubere, vernetzte Notiz (LLM).
             note_warn, route = None, {}
