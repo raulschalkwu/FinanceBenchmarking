@@ -66,6 +66,20 @@ def all_note_stems() -> list[str]:
     return sorted(stems)
 
 
+def canon_folders() -> list[str]:
+    return sorted(p.name for p in ROOT.iterdir()
+                  if p.is_dir() and CANON_RE.match(p.name))
+
+
+def backlink_targets() -> list[str]:
+    out = []
+    for sub in ("01 Research Streams", "12 Literature Maps"):
+        base = ROOT / sub
+        if base.is_dir():
+            out += [str(p.relative_to(ROOT)) for p in sorted(base.glob("*.md"))]
+    return out
+
+
 def nearest_notes(text: str, n: int = 15) -> list[str]:
     """Semantisch nächste bestehende Notizen (als Link-Kandidaten)."""
     try:
@@ -115,9 +129,22 @@ def summarize(raw_text: str, title_hint: str = "") -> str:
         "5. In ## Related MÜSSEN mindestens ein Stream und (falls passend) eine "
         "Map aus der erlaubten Liste stehen – so wird die Notiz vernetzt.\n"
         "6. Deutsch schreiben, Fachbegriffe/Titel im Original.\n"
+        "7. ALLERERSTE Zeile deiner Antwort (vor dem Frontmatter) ist deine "
+        "Ablage-Empfehlung, exakt in diesem Format:\n"
+        '   ROUTE: folder="<einer der Kanon-Ordner>" backlink="<ein Pfad aus '
+        'der Backlink-Ziel-Liste>"\n'
+        "   Wähle den Ordner nach Inhaltstyp (Paper -> 03 Papers, Methode -> "
+        "06 Methods, Konzept -> 02 Concepts, ...) und als backlink den "
+        "thematisch passendsten Stream bzw. die passendste Map.\n"
     )
+    folders = canon_folders()
+    targets = backlink_targets()
     user = (
         f"STIL-BEISPIEL:\n{STYLE_EXAMPLE}\n\n"
+        f"KANON-ORDNER (für ROUTE folder):\n"
+        + "\n".join(f"- {f}" for f in folders) + "\n\n"
+        f"BACKLINK-ZIELE (für ROUTE backlink, exakter Pfad):\n"
+        + "\n".join(f"- {t}" for t in targets) + "\n\n"
         f"SEMANTISCH NÄCHSTE BESTEHENDE NOTIZEN (bevorzugt als Links prüfen):\n"
         f"{near_block}\n\n"
         f"ERLAUBTE WIKILINK-ZIELE (nur diese Namen sind gültige Links):\n"
@@ -138,7 +165,18 @@ def summarize(raw_text: str, title_hint: str = "") -> str:
                            "Notiz unvollständig, nicht gespeichert.")
     if "## Related" not in note:
         raise RuntimeError("Zusammenfassung unvollständig (## Related fehlt).")
-    return sanitize_links(note.strip(), set(allowed))
+
+    # ROUTE-Zeile abtrennen und gegen echte Ordner/Ziele validieren.
+    route = {}
+    m = re.match(r'^\s*ROUTE:\s*folder="([^"]*)"\s*backlink="([^"]*)"\s*\n',
+                 note)
+    if m:
+        note = note[m.end():]
+        if m.group(1) in folders:
+            route["folder"] = m.group(1)
+        if m.group(2) in targets:
+            route["backlink"] = m.group(2)
+    return sanitize_links(note.strip(), set(allowed)), route
 
 
 def sanitize_links(note: str, allowed: set[str]) -> str:
@@ -155,7 +193,9 @@ def main() -> int:
         print("Nutzung: summarize.py <rohtext.md>")
         return 2
     p = (ROOT / sys.argv[1]).resolve()
-    print(summarize(p.read_text(encoding="utf-8"), p.stem))
+    note, route = summarize(p.read_text(encoding="utf-8"), p.stem)
+    print(f"# ROUTE-Vorschlag: {route}\n")
+    print(note)
     return 0
 
 

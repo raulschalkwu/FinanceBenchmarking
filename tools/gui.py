@@ -127,26 +127,29 @@ def home():
     """)
 
 
-def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None):
+def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
+                 route: dict | None = None):
+    route = route or {}
     note_md = (ROOT / draft_rel).read_text(encoding="utf-8")
     warn_html = (f"<div class='card' style='border-color:#f59e0b'>⚠️ "
                  f"{html.escape(note_warn)}</div>") if note_warn else ""
     note_html = (f"<h2>Erzeugte Notiz (Vorschau)</h2>"
                  f"<pre>{html.escape(note_md.strip())}</pre>")
-    # Vorschläge aus dem plan-Output ziehen (für Vorauswahl).
-    sug_folder = None
-    m = re.search(r'--folder "([^"]+)"', plan_out)
-    if m:
-        sug_folder = m.group(1)
+    # Vorauswahl: LLM-Route zuerst, Plan-Heuristik als Fallback.
+    sug_folder = route.get("folder")
+    if not sug_folder:
+        m = re.search(r'--folder "([^"]+)"', plan_out)
+        if m:
+            sug_folder = m.group(1)
     m2 = re.search(r'--into "([^"]+)"', plan_out)
     into_default = m2.group(1) if m2 else ""
-    # bester Backlink-Kandidat
     bl = backlink_targets()
-    bl_default = None
-    for line in plan_out.splitlines():
-        mm = re.search(r"(01 Research Streams/.+\.md|12 Literature Maps/.+\.md)", line)
-        if mm and mm.group(1) in bl:
-            bl_default = mm.group(1); break
+    bl_default = route.get("backlink")
+    if not bl_default:
+        for line in plan_out.splitlines():
+            mm = re.search(r"(01 Research Streams/.+\.md|12 Literature Maps/.+\.md)", line)
+            if mm and mm.group(1) in bl:
+                bl_default = mm.group(1); break
     return page(f"""
     <h1>🔎 Analyse</h1>
     <p class='muted'>Draft: <code>{html.escape(draft_rel)}</code></p>
@@ -250,11 +253,11 @@ class Handler(BaseHTTPRequestHandler):
             title = fields.get("title", "").strip()
 
             # Verständnis-Schritt: Rohtext -> saubere, vernetzte Notiz (LLM).
-            note_warn = None
+            note_warn, route = None, {}
             try:
                 sys.path.insert(0, str(ROOT / "tools"))
                 from summarize import summarize
-                text = summarize(text, title or Path(fname).stem)
+                text, route = summarize(text, title or Path(fname).stem)
             except Exception as e:
                 note_warn = (f"LLM-Zusammenfassung übersprungen ({e}). "
                              f"Rohtext gespeichert – bitte manuell aufbereiten.")
@@ -264,7 +267,7 @@ class Handler(BaseHTTPRequestHandler):
             dest.write_text(text, encoding="utf-8")
             rel = str(dest.relative_to(ROOT))
             plan = run(["tools/promote.py", "plan", rel])
-            return self._send(analyze_page(rel, plan, note_warn))
+            return self._send(analyze_page(rel, plan, note_warn, route))
 
         if self.path == "/promote":
             f = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
