@@ -90,11 +90,9 @@ def nearest_notes(text: str, n: int = 15) -> list[str]:
 
 def summarize(raw_text: str, title_hint: str = "") -> str:
     import anthropic
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise RuntimeError(
-            "ANTHROPIC_API_KEY nicht gesetzt. Server so starten:\n"
-            "  ANTHROPIC_API_KEY=sk-... .venv/bin/python tools/gui.py")
-
+    # Credential: expliziter ANTHROPIC_API_KEY ODER SDK-Auto-Discovery
+    # (z. B. Claude-Login). Kein harter Check – Auth-Fehler kommt sonst klar
+    # von der API zurück.
     allowed = all_note_stems()
     near = nearest_notes(raw_text)
     allowed_block = "\n".join(f"- {s}" for s in allowed)
