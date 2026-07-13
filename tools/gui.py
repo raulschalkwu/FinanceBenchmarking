@@ -53,6 +53,27 @@ def run(cmd):
     return (r.stdout or "") + (r.stderr or "")
 
 
+def extract_text(fname: str, data: bytes) -> tuple[str, str | None]:
+    """Rohdatei -> Markdown-Text. Gibt (text, warnung) zurück.
+    PDF wird per pypdf extrahiert; Text/Markdown direkt decodiert."""
+    if fname.lower().endswith(".pdf"):
+        try:
+            import io
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(data))
+            pages = [(p.extract_text() or "").strip() for p in reader.pages]
+            text = "\n\n".join(pg for pg in pages if pg)
+            if not text.strip():
+                return "", ("PDF enthält keinen extrahierbaren Text "
+                            "(vermutlich gescannt/Bild – OCR nötig).")
+            return text, None
+        except ImportError:
+            return "", "pypdf fehlt: .venv/bin/pip install pypdf"
+        except Exception as e:
+            return "", f"PDF-Extraktion fehlgeschlagen: {e}"
+    return data.decode("utf-8", "ignore"), None
+
+
 # ---------- HTML ----------
 
 CSS = """
@@ -93,15 +114,16 @@ def home():
     <p class='muted'>Rohdatei hochladen → Draft im Silo → automatischer
     Dedup-/Ordner-Vorschlag → ein Klick in den Kanon.</p>
     <form method='POST' action='/upload' enctype='multipart/form-data' class='card'>
-      <label>Rohdatei (.md / .txt)</label>
-      <input type='file' name='file' accept='.md,.txt,.markdown,text/*' required>
+      <label>Rohdatei (.pdf / .md / .txt)</label>
+      <input type='file' name='file' accept='.pdf,.md,.txt,.markdown,text/*,application/pdf' required>
       <div class='row'>
         <div><label>Silo</label><select name='silo'>{silo_opts}</select></div>
         <div><label>Titel (optional)</label><input name='title' placeholder='aus Datei ableiten'></div>
       </div>
       <button type='submit'>Hochladen & analysieren</button>
     </form>
-    <p class='muted'>Läuft lokal. PDF-Extraktion ist noch nicht dabei – erst Text/Markdown.</p>
+    <p class='muted'>Läuft lokal. PDF-Text wird automatisch extrahiert (pypdf);
+    gescannte PDFs ohne Textebene brauchen OCR.</p>
     """)
 
 
@@ -207,13 +229,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(page("<p>Keine Datei. <a href='/'>zurück</a></p>"), 400)
             fname, data = files["file"]
             silo = re.sub(r"[^\w.-]", "", fields.get("silo", "user_raul")) or "user_raul"
-            safe = re.sub(r"[^\w.\- ]", "", Path(fname).name) or "upload.md"
-            if not safe.lower().endswith((".md", ".txt", ".markdown")):
-                safe += ".md"
+            text, warn = extract_text(fname, data)
+            if warn and not text:
+                return self._send(page(
+                    f"<h1>Upload</h1><p>⚠️ {html.escape(warn)}</p>"
+                    f"<p><a href='/'>zurück</a></p>"), 400)
+            # Dateiname: Original-Endung durch .md ersetzen (kein doppeltes .pdf.md)
+            stem = re.sub(r"[^\w.\- ]", "", Path(fname).stem) or "upload"
+            safe = f"{stem}.md"
             silo_dir = ROOT / "drafts" / silo
             silo_dir.mkdir(parents=True, exist_ok=True)
             dest = silo_dir / safe
-            text = data.decode("utf-8", "ignore")
             title = fields.get("title", "").strip()
             if title and not text.lstrip().startswith("---"):
                 text = f"---\ntitle: {title}\n---\n\n{text}"

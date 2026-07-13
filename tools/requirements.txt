@@ -6,6 +6,9 @@
 # (all-MiniLM-L6-v2) – KEIN PyTorch nötig, ~80 MB Modell-Cache, plattform-robust.
 chromadb>=0.5
 
+# Für die Web-GUI (tools/gui.py): PDF-Text extrahieren. Leicht, kein PyTorch.
+pypdf>=4.0
+
 # Optional: nur nötig, wenn ihr über EMBED_MODEL einen eigenen
 # sentence-transformers-Encoder einhängt (statt des ONNX-Defaults).
 # Achtung: zieht PyTorch. Auf Intel-macOS ggf. Versionen pinnen.
