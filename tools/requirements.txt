@@ -1,5 +1,12 @@
 # Abhängigkeiten für den KI-Layer (Vektor-Sync + Dedup).
 # Der Link-Check (check_links.py) und die Schreibbereich-Kontrolle
 # (check_write_scope.py) brauchen KEINE Abhängigkeiten – reines Python.
+
+# Pflicht: ChromaDB. Nutzt standardmäßig sein eingebautes ONNX-MiniLM-Modell
+# (all-MiniLM-L6-v2) – KEIN PyTorch nötig, ~80 MB Modell-Cache, plattform-robust.
 chromadb>=0.5
-sentence-transformers>=3.0
+
+# Optional: nur nötig, wenn ihr über EMBED_MODEL einen eigenen
+# sentence-transformers-Encoder einhängt (statt des ONNX-Defaults).
+# Achtung: zieht PyTorch. Auf Intel-macOS ggf. Versionen pinnen.
+# sentence-transformers>=3.0

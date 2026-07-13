@@ -38,7 +38,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / ".vectordb"
 COLLECTION = "vault"
-THRESHOLD = 0.80
+# Kalibriert für ONNX all-MiniLM-L6-v2 auf Chunk-Ebene: verwandte Notizen liegen
+# oft bei 0.3–0.6, selten höher. 0.80 wäre praktisch nie erreicht (falsche
+# Sicherheit). Daher: WARN-Schwelle moderat, und Top-Treffer IMMER anzeigen,
+# damit der Mensch entscheidet. Für gemischt DE/EN einen mehrsprachigen Encoder
+# via EMBED_MODEL erwägen.
+THRESHOLD = 0.55
 STREAM_DIRS = ("01 Research Streams", "12 Literature Maps")
 
 # Heuristik: welcher Kanon-Ordner passt zu welchen Signalwörtern (nur ein Vorschlag).
@@ -89,16 +94,13 @@ def dedup_hits(draft_path: Path):
     """Top-Treffer aus der Vektor-DB; wirft RuntimeError, wenn kein Index/Dep."""
     try:
         import chromadb
-        from chromadb.utils import embedding_functions
+        from vector_ef import get_embedding_function
     except ImportError as e:
         raise RuntimeError(
-            "chromadb/sentence-transformers fehlen. In venv: "
-            "pip install -r tools/requirements.txt") from e
+            "chromadb fehlt. In venv: pip install -r tools/requirements.txt") from e
     if not DB_DIR.exists():
         raise RuntimeError("Kein Index. Erst: python tools/embed_sync.py")
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=os.environ.get("EMBED_MODEL",
-                                  "sentence-transformers/all-MiniLM-L6-v2"))
+    ef = get_embedding_function()
     client = chromadb.PersistentClient(path=str(DB_DIR))
     col = client.get_collection(COLLECTION, embedding_function=ef)
     text = draft_path.read_text(encoding="utf-8").strip()
@@ -129,15 +131,23 @@ def cmd_plan(draft: Path) -> int:
 
     try:
         hits = dedup_hits(draft)
-        strong = [h for h in hits if h["sim"] >= THRESHOLD]
-        if strong:
-            top = strong[0]
-            print(f"Verdikt:          ERGÄNZEN – ähnelt [[{top['note']}]] "
+        # Nächste bestehende Notizen IMMER anzeigen (Entscheidungshilfe).
+        note_hits = [h for h in hits if h["note"]]
+        if note_hits:
+            print("Nächste bestehende Notizen:")
+            for h in note_hits[:3]:
+                flag = "  ← WARN (prüfen!)" if h["sim"] >= THRESHOLD else ""
+                print(f"    {h['sim']:.2f}  [[{h['note']}]]  ({h['path']}){flag}")
+        top = note_hits[0] if note_hits else None
+        if top and top["sim"] >= THRESHOLD:
+            print(f"\nVerdikt:          ERGÄNZEN prüfen – ähnelt [[{top['note']}]] "
                   f"({top['sim']:.2f})")
-            print(f"  → apply --into \"{top['path']}\"")
+            print(f"  → apply --into \"{top['path']}\"  (oder falls doch neu: --folder …)")
         else:
             folder = suggest_folder(text) or "(bitte wählen)"
-            print("Verdikt:          NEU ANLEGEN – kein naher Treffer")
+            print("\nVerdikt:          NEU ANLEGEN – kein starker Treffer "
+                  f"(bester {top['sim']:.2f} < {THRESHOLD})" if top else
+                  "\nVerdikt:          NEU ANLEGEN")
             print(f"  → apply --folder \"{folder}\"")
         backlinks = [h for h in hits
                      if any(h["path"].startswith(d) for d in STREAM_DIRS)]
