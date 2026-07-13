@@ -82,6 +82,24 @@ def cmd_search(query: str, n: int = 5) -> int:
     return 0
 
 
+def cmd_show(doc_id: str, out: str | None = None) -> int:
+    """Alle Chunks eines Dokuments in Originalreihenfolge ausgeben/speichern."""
+    col = _collection()
+    got = col.get(where={"doc": doc_id}, include=["documents", "metadatas"])
+    if not got["ids"]:
+        print(f"'{doc_id}' nicht im Index. Vorhandene: fulltext_index.py list")
+        return 1
+    pairs = sorted(zip(got["metadatas"], got["documents"]),
+                   key=lambda x: x[0]["chunk"])
+    text = "\n\n".join(doc for _, doc in pairs)
+    if out:
+        Path(out).write_text(text, encoding="utf-8")
+        print(f"Gespeichert: {out} ({len(pairs)} Chunks, {len(text)} Zeichen)")
+    else:
+        print(text)
+    return 0
+
+
 def cmd_list() -> int:
     col = _collection()
     got = col.get(include=["metadatas"])
@@ -100,8 +118,11 @@ def main() -> int:
     sub = p.add_subparsers(dest="mode", required=True)
     a = sub.add_parser("add"); a.add_argument("file"); a.add_argument("--id")
     s = sub.add_parser("search"); s.add_argument("query"); s.add_argument("-n", type=int, default=5)
+    sh = sub.add_parser("show"); sh.add_argument("doc_id"); sh.add_argument("--out")
     sub.add_parser("list")
     args = p.parse_args()
+    if args.mode == "show":
+        return cmd_show(args.doc_id, args.out)
     if args.mode == "add":
         f = (ROOT / args.file).resolve()
         n = index_text(args.id or f.stem, f.read_text(encoding="utf-8"), f.name)
