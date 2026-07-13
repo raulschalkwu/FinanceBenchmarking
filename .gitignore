@@ -24,3 +24,8 @@ Thumbs.db
 __pycache__/
 *.pyc
 .venv/
+
+# ---- Lokale Arbeitsmaterialien (in Obsidian sichtbar, aber NICHT teilen:
+#      Copyright-Volltexte + generiertes Dashboard) ----
+fulltext/
+Dashboard.md

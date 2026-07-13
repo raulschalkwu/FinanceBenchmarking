@@ -285,6 +285,12 @@ class Handler(BaseHTTPRequestHandler):
                 if title and not text.lstrip().startswith("---"):
                     text = f"---\ntitle: {title}\n---\n\n{text}"
 
+            # Draft nach dem echten Notiz-Titel benennen (statt 'w34713' o. ä.),
+            # damit Obsidian-Graph und Wikilinks sprechende Namen zeigen.
+            m_t = re.search(r'^title:\s*"?(.+?)"?\s*$', text, re.MULTILINE)
+            note_title = (m_t.group(1).strip() if m_t else "") or stem
+            clean = re.sub(r'[\\/:*?"<>|]', "", note_title).strip() or stem
+            dest = silo_dir / f"{clean}.md"
             dest.write_text(text, encoding="utf-8")
             rel = str(dest.relative_to(ROOT))
             plan = run(["tools/promote.py", "plan", rel])
