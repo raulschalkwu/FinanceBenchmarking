@@ -25,6 +25,26 @@ Anfangs ein **Mensch (Maintainer)** – ca. 10 Minuten pro Beitrag. Später
    merged in den Kanon. Der Entwurf im `drafts/`-Ordner kann danach bleiben oder
    aufgeräumt werden.
 
+## Werkzeug: tools/promote.py (Orchestrator)
+Die Schritte 1–4 fasst `tools/promote.py` zusammen – die „Shepherd"-Rolle als
+Skript. Der Mensch/Agent trifft nur die zwei semantischen Entscheidungen
+(Zielordner, Rückverlink-Ziel), den Rest macht das Tool:
+```bash
+# nur analysieren (Dedup-Verdikt + Ordner-/Backlink-Vorschlag), schreibt nichts:
+python tools/promote.py plan drafts/<name>/notiz.md
+
+# NEU anlegen + rückverlinken + Link-Check + Branch/PR:
+python tools/promote.py apply drafts/<name>/notiz.md \
+      --folder "03 Papers" --backlink "01 Research Streams/<Stream>.md" --push
+
+# bestehende Kanon-Notiz ERGÄNZEN statt duplizieren:
+python tools/promote.py apply drafts/<name>/notiz.md \
+      --into "03 Papers/<Notiz>.md" --backlink "12 Literature Maps/<Map>.md" --push
+```
+Ergebnis: ein fertiger Promotion-PR, den ein Maintainer nur noch prüft und
+merged. `plan` nutzt den Vektor-Index (Dedup); ohne Index läuft es mit
+Ordner-Heuristik weiter.
+
 ## Faustregel
 Der Draft-Ordner ist die **Werkbank**, der Kanon ist das **Regal**. Promotion ist
 das bewusste Einräumen – dedupliziert, verlinkt, geprüft.
