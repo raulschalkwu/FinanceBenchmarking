@@ -48,6 +48,27 @@ def backlink_targets():
     return out
 
 
+_scout_opts_cache = {}
+
+
+def scout_options():
+    """Klickbare Auswahl für den Scout: Content-Notizen + erkannte Cluster.
+    Gecacht (Clustering kostet ~1 s), damit die Startseite schnell lädt."""
+    if not _scout_opts_cache:
+        try:
+            sys.path.insert(0, str(ROOT / "tools"))
+            from arxiv_scout import list_content_notes, clusters_brief
+            _scout_opts_cache["notes"] = list_content_notes()
+            _scout_opts_cache["clusters"] = [
+                {"idx": c["idx"], "label": c["label"], "size": c["size"]}
+                for c in clusters_brief()]
+        except Exception as e:
+            _scout_opts_cache["notes"] = []
+            _scout_opts_cache["clusters"] = []
+            _scout_opts_cache["error"] = str(e)
+    return _scout_opts_cache
+
+
 def _index_fulltext_bg(doc_id: str, text: str, source: str):
     """Hintergrund-Thread: Volltext in die 'fulltext'-Collection einbetten."""
     try:
@@ -191,6 +212,8 @@ label{display:block;margin:.8rem 0 .25rem;font-weight:600;font-size:.92rem}
 input,select,textarea{font:inherit;padding:.55rem .7rem;width:100%;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit}
 button{font:inherit;background:var(--acc);color:#fff;border:0;border-radius:8px;cursor:pointer;font-weight:600;padding:.65rem 1.3rem}
 button:hover{filter:brightness(1.1)}
+button.secondary{background:transparent;color:inherit;border:1px solid var(--acc);padding:.4rem .8rem}
+button.secondary:hover{background:#2563eb18}
 pre{background:#8881;padding:1rem;border-radius:10px;overflow:auto;white-space:pre-wrap;font-size:.85rem}
 .card{border:1px solid var(--line);border-radius:14px;padding:1.3rem 1.4rem;margin:1rem 0}
 .muted{color:var(--mut);font-size:.9rem}
@@ -261,6 +284,20 @@ def opts(values, selected=None):
 
 def home():
     silo_opts = opts(silos() or ["user_raul"])
+    so = scout_options()
+    if so.get("clusters"):
+        scout_clusters = "<div style='display:flex;flex-wrap:wrap;gap:.4rem'>" + "".join(
+            f"<form method='POST' action='/scout' data-load style='margin:0'>"
+            f"<input type='hidden' name='mode' value='cluster'>"
+            f"<input type='hidden' name='sort' value='relevance'>"
+            f"<input type='hidden' name='cluster' value='{c['idx']}'>"
+            f"<button type='submit' class='secondary' style='font-size:12.5px'>"
+            f"{html.escape(c['label'])} <span style='opacity:.7'>({c['size']})</span>"
+            f"</button></form>"
+            for c in so["clusters"]) + "</div>"
+    else:
+        scout_clusters = "<p class='muted'>Keine Cluster (Index leer? embed_sync ausführen).</p>"
+    scout_notes = opts(so.get("notes") or [])
     return page(f"""
     <p class='muted'>Paper, Artikel oder Dokument hineingeben – die KI liest es,
     schreibt eine vernetzte Notiz, prüft auf Duplikate und schlägt die Ablage
@@ -299,13 +336,37 @@ def home():
       <p><button type='submit'>Holen &amp; analysieren →</button></p>
     </form>
 
-    <form method='POST' action='/scout' class='pane' id='p-scout' data-load>
-      <label>Thema suchen — verwandte Papers auf arXiv finden</label>
-      <input name='query' type='text' placeholder='z. B. implied cost of capital machine learning' required>
-      <p class='muted' style='margin:.4rem 0 0'>Sucht live auf arXiv, rankt gegen
-      deinen Vault und blendet bereits Vorhandenes aus. Kein KI-Aufwand.</p>
-      <p><button type='submit'>Auf arXiv suchen →</button></p>
-    </form>
+    <div class='pane' id='p-scout'>
+      <p class='muted' style='margin:0 0 .8rem'>Semantische Suche auf arXiv:
+      neueste Einreichungen der relevanten Kategorien, gerankt gegen deinen
+      Vault (Embeddings, nicht nur Stichwörter). Vorhandenes ausgeblendet,
+      kein KI-Aufwand.</p>
+
+      <label>Sortierung</label>
+      <select id='scout-sort' onchange="document.querySelectorAll('input[name=sort]').forEach(e=>e.value=this.value)" style='max-width:16rem'>
+        <option value='relevance'>Relevanz (ähnlichste zuerst)</option>
+        <option value='recent'>Neueste zuerst</option>
+      </select>
+
+      <label style='margin-top:1rem'>💡 Mehr zu einem Thema (Cluster)</label>
+      {scout_clusters}
+
+      <label style='margin-top:1rem'>📄 Mehr wie ein bestimmtes Paper</label>
+      <form method='POST' action='/scout' data-load style='display:flex;gap:.5rem'>
+        <input type='hidden' name='mode' value='note'>
+        <input type='hidden' name='sort' value='relevance'>
+        <select name='note' style='flex:1'>{scout_notes}</select>
+        <button type='submit' style='white-space:nowrap'>Suchen →</button>
+      </form>
+
+      <label style='margin-top:1rem'>🔤 Oder frei nach Thema</label>
+      <form method='POST' action='/scout' data-load style='display:flex;gap:.5rem'>
+        <input type='hidden' name='mode' value='query'>
+        <input type='hidden' name='sort' value='relevance'>
+        <input name='query' type='text' placeholder='z. B. implied cost of capital machine learning' style='flex:1' required>
+        <button type='submit' style='white-space:nowrap'>Suchen →</button>
+      </form>
+    </div>
 
     <p class='muted'>Läuft komplett lokal · gescannte PDFs ohne Textebene
     brauchen OCR · Volltext wird für die Tiefensuche mit-indexiert.</p>
@@ -432,8 +493,10 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
     """)
 
 
-def scout_page(query: str, hits: list, err: str | None = None):
+def scout_page(heading: str, hits: list, err: str | None = None,
+               sort: str = "relevance"):
     silo_opts = opts(silos() or ["user_raul"])
+    sort_label = "neueste zuerst" if sort == "recent" else "ähnlichste zuerst"
     if err:
         body = (f"<span class='badge bad'>⚠️ Fehler</span>"
                 f"<p class='muted'>{html.escape(err)}</p>")
@@ -466,8 +529,8 @@ def scout_page(query: str, hits: list, err: str | None = None):
               </div>
             </div>""")
         body = (f"<span class='badge ok'>{len(hits)} Kandidaten</span> "
-                f"<span class='muted'>gerankt gegen deinen Vault, Vorhandenes "
-                f"ausgeblendet</span>"
+                f"<span class='muted'>semantisch gerankt · {sort_label} · "
+                f"Vorhandenes ausgeblendet</span>"
                 f"<label style='margin-top:1rem'>Übernehmen in Silo</label>"
                 f"<select id='scout-silo' onchange=\"document.querySelectorAll("
                 f"'input[name=silo]').forEach(e=>e.value=this.value)\" "
@@ -477,7 +540,7 @@ def scout_page(query: str, hits: list, err: str | None = None):
         first = (silos() or ["user_raul"])[0]
         body = body.replace("__SILO__", html.escape(first))
     return page(f"""
-    <p class='muted'>🔭 arXiv-Scout · Suche: <b>{html.escape(query)}</b></p>
+    <p class='muted'>🔭 arXiv-Scout · <b>{html.escape(heading)}</b></p>
     {body}
     <p style='margin-top:1.5rem'><a class='btn gray' href='/'>Neue Suche</a></p>
     """)
@@ -593,16 +656,27 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/scout":
             fields = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
-            query = fields.get("query", "").strip()
-            if not query:
-                return self._send(page("<p>Kein Suchbegriff. <a href='/'>zurück</a></p>"), 400)
+            mode = fields.get("mode", "query")
+            sort = "recent" if fields.get("sort") == "recent" else "relevance"
             try:
                 sys.path.insert(0, str(ROOT / "tools"))
-                from arxiv_scout import scout_query
-                hits = scout_query(query)
-                return self._send(scout_page(query, hits))
+                from arxiv_scout import scout_query, scout_note, scout_cluster
+                if mode == "cluster":
+                    hits, cl = scout_cluster(int(fields.get("cluster", "0")), sort=sort)
+                    head = f"Cluster: {cl['label']}" if cl else "Cluster"
+                elif mode == "note":
+                    stem = fields.get("note", "")
+                    hits = scout_note(stem, sort=sort)
+                    head = f"Mehr wie: {stem}"
+                else:
+                    q = fields.get("query", "").strip()
+                    if not q:
+                        return self._send(page("<p>Kein Suchbegriff. <a href='/'>zurück</a></p>"), 400)
+                    hits = scout_query(q, sort=sort)
+                    head = f"Suche: {q}"
+                return self._send(scout_page(head, hits, sort=sort))
             except Exception as e:
-                return self._send(scout_page(query, [], err=str(e)))
+                return self._send(scout_page("Scout", [], err=str(e)))
 
         if self.path == "/fetch":
             fields = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}

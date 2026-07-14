@@ -135,7 +135,11 @@ def known_titles() -> set[str]:
 
 
 def rank_candidates(cands: list[dict], centroid: np.ndarray,
-                    known: set[str], min_sim: float) -> list[dict]:
+                    known: set[str], min_sim: float,
+                    sort: str = "relevance") -> list[dict]:
+    """Kandidaten-Abstracts einbetten, gegen den Suchvektor ranken, Bekanntes
+    raus. sort='relevance' → nach Ähnlichkeit; sort='recent' → nach Datum
+    (aber weiterhin nur, was über der Ähnlichkeitsschwelle liegt)."""
     if not cands:
         return []
     from vector_ef import get_embedding_function
@@ -157,8 +161,71 @@ def rank_candidates(cands: list[dict], centroid: np.ndarray,
             continue
         seen_titles.add(nt)
         out.append({**c, "sim": round(float(sim), 2)})
-    out.sort(key=lambda c: c["sim"], reverse=True)
+    if sort == "recent":
+        out.sort(key=lambda c: (c.get("published", ""), c["sim"]), reverse=True)
+    else:
+        out.sort(key=lambda c: c["sim"], reverse=True)
     return out
+
+
+def arxiv_recent(max_results: int = 150) -> list[dict]:
+    """Breiter, WORTUNABHÄNGIGER Pool: die neuesten Einreichungen der
+    relevanten Kategorien (nach Einreichdatum). Das Schleppnetz ist hier die
+    Kategorie, nicht das Stichwort – die Semantik entscheidet danach im
+    Ranking. Ein arXiv-Call."""
+    cat = " OR ".join(f"cat:{c}" for c in CATEGORIES)
+    url = (f"{ARXIV_API}?search_query={urllib.parse.quote(f'({cat})')}"
+           f"&start=0&max_results={max_results}"
+           f"&sortBy=submittedDate&sortOrder=descending")
+    req = urllib.request.Request(url, headers={"User-Agent": "vault-arxiv-scout/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+    except Exception as e:
+        print(f"  WARN: arXiv-Recent fehlgeschlagen ({e})", file=sys.stderr)
+        return []
+    out = []
+    for entry in ET.fromstring(data).findall(f"{ATOM}entry"):
+        def txt(tag):
+            el = entry.find(f"{ATOM}{tag}")
+            return (el.text or "").strip() if el is not None else ""
+        authors = [a.findtext(f"{ATOM}name", "").strip()
+                   for a in entry.findall(f"{ATOM}author")]
+        out.append({
+            "title": re.sub(r"\s+", " ", txt("title")),
+            "summary": re.sub(r"\s+", " ", txt("summary")),
+            "link": txt("id").replace("http://", "https://"),
+            "published": txt("published")[:10],
+            "authors": authors[:4],
+        })
+    return out
+
+
+def build_pool(terms: list[str] | None, fetch: int = 25,
+               recent: int = 150) -> list[dict]:
+    """Kandidaten-Pool = neueste Kategorie-Einreichungen (wortunabhängig)
+    + optional ein Stichwort-Netz, das auch ältere, sehr passende Papers
+    hereinholt. Dedup über normalisierte Titel."""
+    pool = arxiv_recent(recent)
+    seen = {_norm_title(c["title"]) for c in pool}
+    if terms:
+        time.sleep(3)  # arXiv-Etikette
+        for c in arxiv_search(terms[:3], fetch, joiner="OR"):
+            nt = _norm_title(c["title"])
+            if nt not in seen:
+                seen.add(nt); pool.append(c)
+    return pool
+
+
+def scout_by_vector(vec: np.ndarray, terms: list[str] | None = None,
+                    sort: str = "relevance", per: int = 12,
+                    min_sim: float = 0.40) -> list[dict]:
+    """Zentrale Engine: gegen EINEN Suchvektor ranken (Paper-Vektor,
+    Cluster-Schwerpunkt oder Query-Vektor). Pool ist wortunabhängig (neueste
+    Papers) + Stichwort-Ergänzung."""
+    vec = vec / max(float(np.linalg.norm(vec)), 1e-9)
+    pool = build_pool(terms)
+    return rank_candidates(pool, vec, known_titles(), min_sim, sort)[:per]
 
 
 def search_adaptive(terms: list[str], fetch: int) -> list[dict]:
@@ -182,18 +249,66 @@ def search_adaptive(terms: list[str], fetch: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 5. Report
 # ---------------------------------------------------------------------------
-def scout_query(query: str, per: int = 10, min_sim: float = 0.40,
-                fetch: int = 25) -> list[dict]:
-    """Freie Suche für die GUI: Query einbetten, arXiv abfragen, gegen die
-    Query ranken, Bekanntes aussortieren. Gibt gerankte Kandidaten zurück
-    (ein arXiv-Call, schnell genug für eine Web-Anfrage)."""
+# ---------------------------------------------------------------------------
+# GUI-Helfer: klickbare Papers & Cluster als Suchvektor-Quelle
+# ---------------------------------------------------------------------------
+def list_content_notes() -> list[str]:
+    """Sprechende Liste der Content-Notizen (Papers, Konzepte, Methoden …)
+    als klickbare Auswahl für „mehr wie dieses“."""
+    stems, _, path_of = load_note_vectors()
+    return sorted(s for s in stems
+                  if folder_num(path_of.get(s, "")) in CONTENT_FOLDERS)
+
+
+def note_vector(stem: str):
+    """Notiz-Vektor eines Kanon-Stems (für „mehr wie dieses Paper“)."""
+    stems, mat, _ = load_note_vectors()
+    idx = {s: i for i, s in enumerate(stems)}
+    return mat[idx[stem]] if stem in idx else None
+
+
+def clusters_brief(sim: float = 0.74, min_size: int = 4) -> list[dict]:
+    """Cluster mit Label + Schwerpunkt, für die klickbare Cluster-Liste."""
+    out = []
+    for i, cl in enumerate(build_clusters(sim, min_size)):
+        out.append({"idx": i, "label": ", ".join(cluster_terms(cl["members"])),
+                    "size": len(cl["members"]), "members": cl["members"],
+                    "centroid": cl["centroid"]})
+    return out
+
+
+def scout_query(query: str, per: int = 12, min_sim: float = 0.40,
+                sort: str = "relevance") -> list[dict]:
+    """Freie Suche: Query einbetten, gegen den neuesten-Papers-Pool ranken."""
     from vector_ef import get_embedding_function
     ef = get_embedding_function()
     v = np.asarray(ef([query])[0], dtype=np.float32)
-    v = v / max(np.linalg.norm(v), 1e-9)
     terms = [t for t in re.findall(r"[\w-]+", query.lower()) if t not in STOP][:5]
-    cands = search_adaptive(terms, fetch) if terms else []
-    return rank_candidates(cands, v, known_titles(), min_sim)[:per]
+    return scout_by_vector(v, terms, sort, per, min_sim)
+
+
+def scout_note(stem: str, per: int = 12, min_sim: float = 0.40,
+               sort: str = "relevance") -> list[dict]:
+    """„Mehr wie dieses Paper“: Notiz-Vektor als Suchvektor."""
+    v = note_vector(stem)
+    if v is None:
+        return []
+    terms = [t for t in re.findall(r"[A-Za-z][\w-]+", stem.lower())
+             if t not in STOP][:4]
+    return scout_by_vector(np.asarray(v, dtype=np.float32), terms, sort, per, min_sim)
+
+
+def scout_cluster(idx: int, per: int = 12, min_sim: float = 0.40,
+                  sort: str = "relevance") -> tuple[list[dict], dict | None]:
+    """„Mehr zu diesem Thema“: Cluster-Schwerpunkt als Suchvektor."""
+    briefs = clusters_brief()
+    cl = next((c for c in briefs if c["idx"] == idx), None)
+    if cl is None:
+        return [], None
+    terms = cluster_terms(cl["members"])
+    hits = scout_by_vector(np.asarray(cl["centroid"], dtype=np.float32),
+                           terms, sort, per, min_sim)
+    return hits, cl
 
 
 def render(sections: list[dict], args) -> str:
@@ -236,36 +351,29 @@ def main() -> int:
     ap.add_argument("--min-sim", type=float, default=0.40,
                     help="Mindest-Ähnlichkeit zum Cluster (Default 0.40)")
     ap.add_argument("--fetch", type=int, default=25,
-                    help="Kandidaten pro arXiv-Abfrage (Default 25)")
+                    help="Stichwort-Kandidaten pro arXiv-Abfrage (Default 25)")
+    ap.add_argument("--sort", choices=["relevance", "recent"], default="relevance",
+                    help="Sortierung: relevance (Ähnlichkeit) oder recent (neueste zuerst)")
     ap.add_argument("--stdout", action="store_true", help="nur ausgeben")
     args = ap.parse_args()
 
-    known = known_titles()
     sections = []
 
     if args.query:
-        # Freier Modus: Query-Text selbst einbetten und als "Centroid" nutzen.
-        from vector_ef import get_embedding_function
-        ef = get_embedding_function()
-        v = np.asarray(ef([args.query])[0], dtype=np.float32)
-        v = v / max(np.linalg.norm(v), 1e-9)
-        terms = [t for t in re.findall(r"[\w-]+", args.query.lower())
-                 if t not in STOP][:5]
-        print(f"Suche: {terms}", file=sys.stderr)
-        cands = arxiv_search(terms, args.fetch)
-        hits = rank_candidates(cands, v, known, args.min_sim)[:args.per_cluster * 2]
+        # Freier Modus: Query-Text einbetten und gegen den Recent-Pool ranken.
+        print(f"Freie Suche: {args.query}", file=sys.stderr)
+        hits = scout_query(args.query, args.per_cluster * 2, args.min_sim, args.sort)
         sections.append({"name": f"Freie Suche: „{args.query}“", "hits": hits})
     else:
         clusters = build_clusters(args.sim, args.min_cluster)
         print(f"{len(clusters)} Cluster gefunden", file=sys.stderr)
-        for i, cl in enumerate(clusters, 1):
+        for i, cl in enumerate(clusters):
             terms = cluster_terms(cl["members"])
-            print(f"  Cluster {i} ({len(cl['members'])} Notizen): {terms}",
+            print(f"  Cluster {i+1} ({len(cl['members'])} Notizen): {terms}",
                   file=sys.stderr)
-            cands = search_adaptive(terms, args.fetch)
-            hits = rank_candidates(cands, cl["centroid"], known,
-                                   args.min_sim)[:args.per_cluster]
-            sections.append({"name": f"Cluster {i}: {', '.join(terms)}",
+            hits = scout_by_vector(cl["centroid"], terms, args.sort,
+                                   args.per_cluster, args.min_sim)
+            sections.append({"name": f"Cluster {i+1}: {', '.join(terms)}",
                              "members": cl["members"], "hits": hits})
             time.sleep(3)  # arXiv-API-Etikette: max. 1 Anfrage / 3 s
 
