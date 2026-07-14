@@ -88,7 +88,22 @@ kann damit: `vault_search`, `fulltext_search`, `dedup_check`, `read_note`,
 Einzige Voraussetzung: einmal den KI-Layer einrichten (Schritt 6). Beim ersten
 Start fragt dein Agent einmalig, ob der Projekt-MCP-Server erlaubt ist.
 
-## 6. Dein lokaler KI-Layer (optional, für Retrieval/Dedup)
+## 6a. Zentrale ChromaDB (empfohlen: alle nutzen denselben Index)
+Statt dass jeder lokal indexiert, gibt es EINE zentrale ChromaDB. Setz in deiner
+Shell (oder `~/.zshrc`):
+```bash
+export CHROMA_HOST=chroma.wu.ac.at   # Hostname des Instituts-Servers
+export CHROMA_PORT=8000               # optional (Default 8000)
+```
+Danach laufen embed_sync/check_dedup/promote/GUI/Shepherd automatisch gegen den
+Server – **du musst nichts mehr selbst indexieren**. Ohne `CHROMA_HOST` fällt
+alles auf die lokale `.vectordb` zurück (Solo-Modus).
+
+Server aufsetzen (einmalig, Maintainer, auf dem Instituts-Server):
+`CHROMA_DATA=/daten/vault-chroma bash tools/chroma_serve.sh`, dann EINMAL
+`CHROMA_HOST=localhost .venv/bin/python tools/embed_sync.py`.
+
+## 6b. Dein lokaler KI-Layer (Fallback ohne zentrale DB)
 Rein lokal, wird nie geteilt (`.vectordb/` ist in `.gitignore`):
 ```bash
 python -m venv .venv && source .venv/bin/activate

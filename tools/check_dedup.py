@@ -47,11 +47,9 @@ def main() -> int:
     if len(sys.argv) < 2:
         print("Nutzung: python tools/check_dedup.py <datei-oder-ordner>")
         return 2
-    import chromadb
-    from vector_ef import get_embedding_function
+    from vector_ef import get_embedding_function, get_client
     ef = get_embedding_function()
-    client = chromadb.PersistentClient(path=str(DB_DIR))
-    col = client.get_collection(COLLECTION, embedding_function=ef)
+    col = get_client().get_collection(COLLECTION, embedding_function=ef)
 
     target = (ROOT / sys.argv[1]).resolve()
     files = sorted(target.rglob("*.md")) if target.is_dir() else [target]

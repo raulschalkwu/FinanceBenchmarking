@@ -29,3 +29,4 @@ __pycache__/
 #      Copyright-Volltexte + generiertes Dashboard) ----
 fulltext/
 Dashboard.md
+.chroma-server/

@@ -86,10 +86,9 @@ def backlink_targets() -> list[str]:
 def nearest_notes(text: str, n: int = 15) -> list[str]:
     """Semantisch nächste bestehende Notizen (als Link-Kandidaten)."""
     try:
-        import chromadb
         sys.path.insert(0, str(ROOT / "tools"))
-        from vector_ef import get_embedding_function
-        col = chromadb.PersistentClient(path=str(DB_DIR)).get_collection(
+        from vector_ef import get_embedding_function, get_client
+        col = get_client().get_collection(
             "vault", embedding_function=get_embedding_function())
         res = col.query(query_texts=[text[:2000]], n_results=n * 2,
                         include=["metadatas"])

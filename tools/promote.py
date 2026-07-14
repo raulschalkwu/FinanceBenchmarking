@@ -97,16 +97,17 @@ def safe_filename(title: str) -> str:
 def dedup_hits(draft_path: Path):
     """Top-Treffer aus der Vektor-DB; wirft RuntimeError, wenn kein Index/Dep."""
     try:
-        import chromadb
-        from vector_ef import get_embedding_function
+        from vector_ef import get_embedding_function, get_client
     except ImportError as e:
         raise RuntimeError(
             "chromadb fehlt. In venv: pip install -r tools/requirements.txt") from e
-    if not DB_DIR.exists():
-        raise RuntimeError("Kein Index. Erst: python tools/embed_sync.py")
     ef = get_embedding_function()
-    client = chromadb.PersistentClient(path=str(DB_DIR))
-    col = client.get_collection(COLLECTION, embedding_function=ef)
+    try:
+        col = get_client().get_collection(COLLECTION, embedding_function=ef)
+    except Exception as e:
+        raise RuntimeError(
+            "Kein Index erreichbar. Lokal: python tools/embed_sync.py – "
+            "oder zentral CHROMA_HOST setzen.") from e
     text = draft_path.read_text(encoding="utf-8").strip()
     res = col.query(query_texts=[text[:2000]], n_results=8,
                     include=["metadatas", "distances"])

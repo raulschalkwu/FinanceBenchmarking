@@ -32,10 +32,8 @@ CANON_RE = re.compile(r"^\d\d ")
 
 
 def _col(name: str):
-    import chromadb
-    from vector_ef import get_embedding_function
-    client = chromadb.PersistentClient(path=str(DB_DIR))
-    return client.get_or_create_collection(
+    from vector_ef import get_embedding_function, get_client
+    return get_client().get_or_create_collection(
         name, embedding_function=get_embedding_function(),
         metadata={"hnsw:space": "cosine"})
 

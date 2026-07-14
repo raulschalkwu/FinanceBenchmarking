@@ -28,11 +28,9 @@ COLLECTION = "fulltext"
 
 
 def _collection():
-    import chromadb
     sys.path.insert(0, str(ROOT / "tools"))
-    from vector_ef import get_embedding_function
-    client = chromadb.PersistentClient(path=str(DB_DIR))
-    return client.get_or_create_collection(
+    from vector_ef import get_embedding_function, get_client
+    return get_client().get_or_create_collection(
         COLLECTION, embedding_function=get_embedding_function(),
         metadata={"hnsw:space": "cosine"})
 

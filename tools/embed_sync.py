@@ -46,11 +46,10 @@ def chunks(text: str) -> list[str]:
 
 
 def build():
-    import chromadb
-    from vector_ef import get_embedding_function, ef_label
+    from vector_ef import (get_embedding_function, ef_label,
+                           get_client, client_label)
 
-    DB_DIR.mkdir(exist_ok=True)
-    client = chromadb.PersistentClient(path=str(DB_DIR))
+    client = get_client()
     ef = get_embedding_function()
     # Voll-Reindex: Collection frisch aufbauen (Vault ist klein -> unkompliziert,
     # räumt automatisch gelöschte/verschobene Dateien auf).
@@ -76,7 +75,7 @@ def build():
     if ids:
         col.add(ids=ids, documents=docs, metadatas=metas)
     print(f"Indexiert: {len(ids)} Chunks aus {len(canon_files())} Kanon-Notizen "
-          f"(Modell: {ef_label()}) -> {DB_DIR}")
+          f"(Modell: {ef_label()}) -> {client_label()}")
 
 
 def main() -> int:

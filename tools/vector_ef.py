@@ -13,6 +13,44 @@ sentence-transformers` (optional, siehe tools/requirements.txt).
 """
 from __future__ import annotations
 import os
+from pathlib import Path
+
+DB_DIR = Path(__file__).resolve().parent.parent / ".vectordb"
+
+
+def get_client():
+    """EINE zentrale ChromaDB-Verbindung für alle Tools.
+
+    - Geteilter Modus (empfohlen fürs Team): setze CHROMA_HOST (+ optional
+      CHROMA_PORT, Default 8000). Dann verbinden sich ALLE mit derselben
+      zentralen ChromaDB (ein Index für alle) – siehe tools/chroma_serve.sh.
+    - Lokaler Fallback: ohne CHROMA_HOST wird die lokale .vectordb genutzt
+      (jeder baut seinen eigenen Index).
+    """
+    import chromadb
+    host = os.environ.get("CHROMA_HOST")
+    if host:
+        port = int(os.environ.get("CHROMA_PORT", "8000"))
+        settings = None
+        token = os.environ.get("CHROMA_TOKEN")
+        if token:
+            from chromadb.config import Settings
+            settings = Settings(
+                chroma_client_auth_provider=
+                "chromadb.auth.token_authn.TokenAuthClientProvider",
+                chroma_client_auth_credentials=token)
+        return chromadb.HttpClient(host=host, port=port,
+                                   settings=settings) if settings \
+            else chromadb.HttpClient(host=host, port=port)
+    DB_DIR.mkdir(exist_ok=True)
+    return chromadb.PersistentClient(path=str(DB_DIR))
+
+
+def client_label() -> str:
+    host = os.environ.get("CHROMA_HOST")
+    if host:
+        return f"zentral @ {host}:{os.environ.get('CHROMA_PORT', '8000')}"
+    return f"lokal ({DB_DIR})"
 
 
 def get_embedding_function():
