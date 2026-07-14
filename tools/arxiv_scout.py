@@ -182,6 +182,20 @@ def search_adaptive(terms: list[str], fetch: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 5. Report
 # ---------------------------------------------------------------------------
+def scout_query(query: str, per: int = 10, min_sim: float = 0.40,
+                fetch: int = 25) -> list[dict]:
+    """Freie Suche für die GUI: Query einbetten, arXiv abfragen, gegen die
+    Query ranken, Bekanntes aussortieren. Gibt gerankte Kandidaten zurück
+    (ein arXiv-Call, schnell genug für eine Web-Anfrage)."""
+    from vector_ef import get_embedding_function
+    ef = get_embedding_function()
+    v = np.asarray(ef([query])[0], dtype=np.float32)
+    v = v / max(np.linalg.norm(v), 1e-9)
+    terms = [t for t in re.findall(r"[\w-]+", query.lower()) if t not in STOP][:5]
+    cands = search_adaptive(terms, fetch) if terms else []
+    return rank_candidates(cands, v, known_titles(), min_sim)[:per]
+
+
 def render(sections: list[dict], args) -> str:
     L = ["---", 'title: "_arXiv-Scout (generiert)"', "tags: [generiert, leseliste]",
          "---", "# _arXiv-Scout — verwandte Papers auf arXiv", "",

@@ -269,6 +269,7 @@ def home():
     <div class='tabs'>
       <button class='tab on' id='t-file' onclick='tab("file")' type='button'>📄 Datei</button>
       <button class='tab' id='t-url' onclick='tab("url")' type='button'>🔗 URL</button>
+      <button class='tab' id='t-scout' onclick='tab("scout")' type='button'>🔭 Scout</button>
     </div>
 
     <form method='POST' action='/upload' enctype='multipart/form-data'
@@ -298,12 +299,20 @@ def home():
       <p><button type='submit'>Holen &amp; analysieren →</button></p>
     </form>
 
+    <form method='POST' action='/scout' class='pane' id='p-scout' data-load>
+      <label>Thema suchen — verwandte Papers auf arXiv finden</label>
+      <input name='query' type='text' placeholder='z. B. implied cost of capital machine learning' required>
+      <p class='muted' style='margin:.4rem 0 0'>Sucht live auf arXiv, rankt gegen
+      deinen Vault und blendet bereits Vorhandenes aus. Kein KI-Aufwand.</p>
+      <p><button type='submit'>Auf arXiv suchen →</button></p>
+    </form>
+
     <p class='muted'>Läuft komplett lokal · gescannte PDFs ohne Textebene
     brauchen OCR · Volltext wird für die Tiefensuche mit-indexiert.</p>
 
     <script>
     function tab(w){{
-      for (const x of ['file','url']){{
+      for (const x of ['file','url','scout']){{
         document.getElementById('t-'+x).classList.toggle('on', x===w);
         document.getElementById('p-'+x).classList.toggle('on', x===w);
       }}
@@ -423,6 +432,57 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
     """)
 
 
+def scout_page(query: str, hits: list, err: str | None = None):
+    silo_opts = opts(silos() or ["user_raul"])
+    if err:
+        body = (f"<span class='badge bad'>⚠️ Fehler</span>"
+                f"<p class='muted'>{html.escape(err)}</p>")
+    elif not hits:
+        body = ("<span class='badge warn'>Keine neuen Treffer</span>"
+                "<p class='muted'>Nichts über der Ähnlichkeitsschwelle, das "
+                "nicht schon im Vault ist. Anderes Stichwort probieren.</p>")
+    else:
+        rows = []
+        for h in hits:
+            auth = html.escape(", ".join(h.get("authors", [])) or "—")
+            link = html.escape(h["link"])
+            ttl = html.escape(h["title"])
+            rows.append(f"""
+            <div class='card' style='padding:.9rem 1.1rem'>
+              <div style='display:flex;justify-content:space-between;gap:1rem;align-items:start'>
+                <div>
+                  <a href='{link}' target='_blank' style='font-weight:600;font-size:15px'>{ttl}</a>
+                  <div class='muted' style='font-size:12.5px;margin-top:.2rem'>
+                    {auth} · {html.escape(h.get('published',''))} ·
+                    <span class='badge ok' style='padding:.05rem .5rem'>sim {h['sim']}</span>
+                  </div>
+                </div>
+                <form method='POST' action='/fetch' data-load style='margin:0'>
+                  <input type='hidden' name='url' value='{link}'>
+                  <input type='hidden' name='title' value='{ttl}'>
+                  <input type='hidden' name='silo' value='__SILO__'>
+                  <button type='submit' style='white-space:nowrap'>Übernehmen →</button>
+                </form>
+              </div>
+            </div>""")
+        body = (f"<span class='badge ok'>{len(hits)} Kandidaten</span> "
+                f"<span class='muted'>gerankt gegen deinen Vault, Vorhandenes "
+                f"ausgeblendet</span>"
+                f"<label style='margin-top:1rem'>Übernehmen in Silo</label>"
+                f"<select id='scout-silo' onchange=\"document.querySelectorAll("
+                f"'input[name=silo]').forEach(e=>e.value=this.value)\" "
+                f"style='max-width:16rem'>{silo_opts}</select>"
+                + "".join(rows))
+        # Silo-Platzhalter mit dem ersten Silo vorbelegen
+        first = (silos() or ["user_raul"])[0]
+        body = body.replace("__SILO__", html.escape(first))
+    return page(f"""
+    <p class='muted'>🔭 arXiv-Scout · Suche: <b>{html.escape(query)}</b></p>
+    {body}
+    <p style='margin-top:1.5rem'><a class='btn gray' href='/'>Neue Suche</a></p>
+    """)
+
+
 def result_page(out: str):
     m = re.search(r"(https://github\.com/\S+/compare/\S+)", out)
     pr = (f"<a class='btn' href='{html.escape(m.group(1))}' target='_blank'>"
@@ -530,6 +590,19 @@ class Handler(BaseHTTPRequestHandler):
             fname, data = files["file"]
             text, warn = extract_text(fname, data)
             return self._ingest(text, warn, Path(fname).name, fields)
+
+        if self.path == "/scout":
+            fields = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
+            query = fields.get("query", "").strip()
+            if not query:
+                return self._send(page("<p>Kein Suchbegriff. <a href='/'>zurück</a></p>"), 400)
+            try:
+                sys.path.insert(0, str(ROOT / "tools"))
+                from arxiv_scout import scout_query
+                hits = scout_query(query)
+                return self._send(scout_page(query, hits))
+            except Exception as e:
+                return self._send(scout_page(query, [], err=str(e)))
 
         if self.path == "/fetch":
             fields = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
