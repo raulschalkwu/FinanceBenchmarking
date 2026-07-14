@@ -136,10 +136,45 @@ def extract_docx(data: bytes) -> str:
     return re.sub(r"\n{3,}", "\n\n", html.unescape(xml)).strip()
 
 
+def extract_xlsx(data: bytes) -> str:
+    """.xlsx -> kompakte STRUKTUR-Beschreibung (Blätter, Spalten, Zeilenzahl,
+    wenige Beispielzeilen). Bewusst KEINE Rohzellen-Wüste: der Vault soll eine
+    Datensatz-Beschreibung bekommen, keine Tabellendaten."""
+    import io
+    from openpyxl import load_workbook
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    out = []
+    for ws in wb.worksheets:
+        rows = ws.iter_rows(values_only=True)
+        header = next(rows, None)
+        cols = [str(c) for c in header if c is not None] if header else []
+        sample = []
+        for i, r in enumerate(rows):
+            if i >= 3:
+                break
+            sample.append(" | ".join("" if c is None else str(c) for c in r))
+        out.append(
+            f"Blatt \"{ws.title}\": {ws.max_row} Zeilen × {ws.max_column} Spalten\n"
+            f"Spalten: {', '.join(cols) or '(keine Kopfzeile)'}\n"
+            + ("Beispielzeilen:\n  " + "\n  ".join(sample) if sample else ""))
+    wb.close()
+    return "\n\n".join(out)
+
+
 def extract_text(fname: str, data: bytes) -> tuple[str, str | None]:
     """Rohdatei -> Markdown-Text. Gibt (text, warnung) zurück.
-    PDF (pypdf), DOCX (zipfile), HTML (Parser), sonst direkt als Text decodiert."""
+    PDF (pypdf), DOCX/XLSX (zipfile/openpyxl), HTML (Parser), sonst als Text."""
     low = fname.lower()
+    if low.endswith((".xlsx", ".xlsm")):
+        try:
+            text = extract_xlsx(data)
+            if not text.strip():
+                return "", "Excel-Datei ist leer."
+            return text, None
+        except ImportError:
+            return "", "openpyxl fehlt: .venv/bin/pip install openpyxl"
+        except Exception as e:
+            return "", f"Excel-Extraktion fehlgeschlagen: {e}"
     if low.endswith(".pdf"):
         try:
             import io
@@ -322,10 +357,10 @@ def home():
           class='pane on' id='p-file' data-load>
       <div class='drop' id='drop' onclick='document.getElementById(\"fi\").click()'>
         <div class='fname' id='fname'>Datei hierher ziehen oder klicken</div>
-        <div class='muted'>PDF · DOCX · HTML · Markdown · TXT</div>
+        <div class='muted'>PDF · DOCX · XLSX · HTML · Markdown · TXT</div>
       </div>
       <input type='file' name='file' id='fi' style='display:none'
-             accept='.pdf,.docx,.html,.htm,.md,.txt,.markdown,text/*,application/pdf' required>
+             accept='.pdf,.docx,.xlsx,.xlsm,.html,.htm,.md,.txt,.markdown,text/*,application/pdf' required>
       <div class='row'>
         <div><label>Dein Silo</label><select name='silo'>{silo_opts}</select></div>
         <div><label>Titel <span class='muted'>(optional)</span></label>
@@ -438,10 +473,37 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
             mm = re.search(r"(01 Research Streams/.+\.md|12 Literature Maps/.+\.md)", line)
             if mm and mm.group(1) in bl:
                 bl_default = mm.group(1); break
-    into_checked = "checked" if into_default and not sug_folder else ""
-    new_checked = "" if into_checked else "checked"
+    # Erkannter Inhaltstyp (aus der LLM-Route) als Badge.
+    TYPE_LABEL = {"paper": "📄 Paper", "dataset": "📊 Datensatz",
+                  "regulation": "📜 Regulierung", "concept": "💡 Konzept",
+                  "method": "🛠 Methode", "other": "📄 Dokument"}
+    t = route.get("type", "")
+    type_badge = (f"<span class='badge ok' style='background:#2563eb22;"
+                  f"color:var(--acc);border-color:#2563eb55'>"
+                  f"{TYPE_LABEL.get(t, '📄 Dokument')} erkannt</span> ") if t else ""
+    # Neuer-Ordner-Vorschlag?
+    is_nf = bool(route.get("new_folder"))
+    nf_name = route.get("folder", "") if is_nf else ""
+    existing_sug = "" if is_nf else sug_folder
+    if is_nf:
+        default_mode = "newfolder"
+    elif into_default and not sug_folder:
+        default_mode = "into"
+    else:
+        default_mode = "new"
+    nf_card = (f"""
+      <div class='choice' id='c-nf' onclick='mode("newfolder")'>
+        <label style='margin:0;cursor:pointer'>
+          <input type='radio' name='mode' value='newfolder' {'checked' if default_mode=='newfolder' else ''}>
+          ✨ Neuen Ordner anlegen: <b>{html.escape(nf_name)}</b></label>
+        <input type='hidden' name='newfolder' value='{html.escape(nf_name)}'>
+        <div class='muted' style='margin-top:.4rem'>Passt in keinen bestehenden
+        Ordner. Mit einem Klick wird <code>{html.escape(nf_name)}</code> als neuer
+        Kanon-Ordner angelegt – künftig routet dieser Typ automatisch dorthin.</div>
+      </div>""") if is_nf else ""
+    ck = {m: ("checked" if default_mode == m else "") for m in ("new", "into")}
     return page(f"""
-    <p>{verdict_badge(plan_out)}</p>
+    <p>{type_badge}{verdict_badge(plan_out)}</p>
     {warn_html}
 
     <h2>1 · Erzeugte Notiz <span class='muted'>(landet in deinem Silo)</span></h2>
@@ -454,18 +516,20 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
       <input type='hidden' name='draft' value='{html.escape(draft_rel)}'>
       <h2 style='margin-top:0'>2 · In den Kanon übernehmen</h2>
 
+      {nf_card}
+
       <div class='choice' id='c-new' onclick='mode("new")'>
         <label style='margin:0;cursor:pointer'>
-          <input type='radio' name='mode' value='new' {new_checked}>
+          <input type='radio' name='mode' value='new' {ck['new']}>
           🆕 Als neue Notiz anlegen</label>
         <div id='f-new' style='margin-top:.6rem'>
-          <select name='folder'>{opts([''] + canon_folders(), sug_folder)}</select>
+          <select name='folder'>{opts([''] + canon_folders(), existing_sug)}</select>
         </div>
       </div>
 
       <div class='choice' id='c-into' onclick='mode("into")'>
         <label style='margin:0;cursor:pointer'>
-          <input type='radio' name='mode' value='into' {into_checked}>
+          <input type='radio' name='mode' value='into' {ck['into']}>
           ✏️ Bestehende Notiz ergänzen</label>
         <div id='f-into' style='margin-top:.6rem'>
           <input name='into' value='{html.escape(into_default)}'
@@ -492,10 +556,11 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
 
     <script>
     function mode(w){{
-      document.getElementById('c-new').classList.toggle('on', w==='new');
-      document.getElementById('c-into').classList.toggle('on', w==='into');
-      document.querySelector('#c-new input[type=radio]').checked = (w==='new');
-      document.querySelector('#c-into input[type=radio]').checked = (w==='into');
+      for(const [id,m] of [['c-nf','newfolder'],['c-new','new'],['c-into','into']]){{
+        const el=document.getElementById(id); if(!el) continue;
+        el.classList.toggle('on', m===w);
+        el.querySelector('input[type=radio]').checked = (m===w);
+      }}
     }}
     mode(document.querySelector('input[name=mode]:checked').value);
     </script>
@@ -716,12 +781,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(page("<p>Draft/Backlink fehlt. <a href='/'>zurück</a></p>"), 400)
             cmd = ["tools/promote.py", "apply", draft, "--backlink", backlink]
             mode = f.get("mode", "")
-            if mode == "into" and f.get("into"):
+            if mode == "newfolder" and f.get("newfolder"):
+                cmd += ["--folder", f["newfolder"], "--new-folder"]
+            elif mode == "into" and f.get("into"):
                 cmd += ["--into", f["into"]]
-            elif mode != "into" and f.get("folder"):
+            elif mode == "new" and f.get("folder"):
                 cmd += ["--folder", f["folder"]]
-            elif f.get("into"):   # Fallback ohne mode-Feld (alte Formulare)
+            elif f.get("into"):   # Fallback ohne mode-Feld
                 cmd += ["--into", f["into"]]
+            elif f.get("folder"):
+                cmd += ["--folder", f["folder"]]
             else:
                 return self._send(page("<p>Zielordner bzw. Notiz wählen. "
                                        "<a href='/'>zurück</a></p>"), 400)

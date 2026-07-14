@@ -255,8 +255,13 @@ def cmd_apply(a) -> int:
     else:       # ---- NEU ----
         folder = ROOT / a.folder
         if not folder.is_dir():
-            print(f"FEHLER: Ordner existiert nicht: {a.folder}")
-            return 2
+            if a.new_folder and re.match(r"^\d\d ", a.folder):
+                folder.mkdir(parents=True)
+                print(f"Neuer Kanon-Ordner angelegt: {a.folder}")
+            else:
+                print(f"FEHLER: Ordner existiert nicht: {a.folder} "
+                      f"(für neuen Ordner --new-folder setzen)")
+                return 2
         target = folder / f"{safe_filename(title)}.md"
         if target.exists():
             print(f"FEHLER: Notiz existiert schon: {target.relative_to(ROOT)} "
@@ -315,6 +320,8 @@ def main() -> int:
     ap = sub.add_parser("apply")
     ap.add_argument("draft")
     ap.add_argument("--folder"); ap.add_argument("--into")
+    ap.add_argument("--new-folder", action="store_true",
+                    help="--folder ist ein NEUER Kanon-Ordner, der angelegt werden soll")
     ap.add_argument("--backlink", required=True)
     ap.add_argument("--title"); ap.add_argument("--branch")
     ap.add_argument("--push", action="store_true")
