@@ -13,6 +13,10 @@ pypdf>=4.0
 # Braucht ANTHROPIC_API_KEY in der Umgebung.
 anthropic>=0.40
 
+# Shepherd-Agent (tools/shepherd_mcp.py): MCP-Server, über den sich private
+# KI-Agenten (Claude Code/Desktop, Cursor, ...) mit dem Vault verbinden.
+mcp>=1.0
+
 # Optional: nur nötig, wenn ihr über EMBED_MODEL einen eigenen
 # sentence-transformers-Encoder einhängt (statt des ONNX-Defaults).
 # Achtung: zieht PyTorch. Auf Intel-macOS ggf. Versionen pinnen.

@@ -79,6 +79,15 @@ Zwei Wege:
 - **Promotion-Request-Issue** öffnen (Template *Promotion request*), wenn du
   selbst keinen sauberen Kanon-PR bauen willst — der Maintainer übernimmt.
 
+## 5b. Deinen KI-Agenten verbinden (Shepherd via MCP)
+Der Vault bringt einen **Shepherd-Agenten** mit (`tools/shepherd_mcp.py` +
+`.mcp.json` im Root). Wenn du deinen Agenten (Claude Code, Claude Desktop,
+Cursor, …) **im Vault-Ordner** öffnest, findet er den Shepherd automatisch und
+kann damit: `vault_search`, `fulltext_search`, `dedup_check`, `read_note`,
+`submit_draft` (nur in deinen Silo!), `promotion_plan`, `vault_rules`.
+Einzige Voraussetzung: einmal den KI-Layer einrichten (Schritt 6). Beim ersten
+Start fragt dein Agent einmalig, ob der Projekt-MCP-Server erlaubt ist.
+
 ## 6. Dein lokaler KI-Layer (optional, für Retrieval/Dedup)
 Rein lokal, wird nie geteilt (`.vectordb/` ist in `.gitignore`):
 ```bash
