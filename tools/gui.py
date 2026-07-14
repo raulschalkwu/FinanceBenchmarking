@@ -13,6 +13,7 @@ Reine Bedienoberfläche – die ganze Logik steckt weiter in den CLI-Tools.
 """
 from __future__ import annotations
 import html
+import html.parser
 import re
 import subprocess
 import sys
@@ -65,10 +66,60 @@ def run(cmd):
     return (r.stdout or "") + (r.stderr or "")
 
 
+class _HTMLText(html.parser.HTMLParser):
+    """Minimaler HTML->Text-Extraktor (stdlib, keine Zusatz-Abhängigkeit).
+    Ignoriert script/style/nav/footer, setzt Absatzumbrüche bei Blockelementen."""
+    _SKIP = {"script", "style", "noscript", "head", "nav", "footer", "aside"}
+    _BREAK = {"p", "br", "div", "li", "tr", "h1", "h2", "h3", "h4", "section"}
+
+    def __init__(self):
+        super().__init__()
+        self.parts: list[str] = []
+        self._skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP:
+            self._skip += 1
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP and self._skip:
+            self._skip -= 1
+        elif tag in self._BREAK:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip and data.strip():
+            self.parts.append(data)
+
+
+def html_to_text(raw: bytes | str) -> str:
+    s = raw.decode("utf-8", "ignore") if isinstance(raw, bytes) else raw
+    p = _HTMLText()
+    p.feed(s)
+    text = "".join(p.parts)
+    # überflüssige Leerzeilen zusammenfassen
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def extract_docx(data: bytes) -> str:
+    """.docx = ZIP mit word/document.xml. Text aus <w:t>-Elementen, Absätze bei
+    </w:p>. Stdlib-only (zipfile), keine python-docx-Abhängigkeit nötig."""
+    import io
+    import zipfile
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        xml = z.read("word/document.xml").decode("utf-8", "ignore")
+    xml = re.sub(r"</w:p>", "\n", xml)
+    xml = re.sub(r"<[^>]+>", "", xml)
+    return re.sub(r"\n{3,}", "\n\n", html.unescape(xml)).strip()
+
+
 def extract_text(fname: str, data: bytes) -> tuple[str, str | None]:
     """Rohdatei -> Markdown-Text. Gibt (text, warnung) zurück.
-    PDF wird per pypdf extrahiert; Text/Markdown direkt decodiert."""
-    if fname.lower().endswith(".pdf"):
+    PDF (pypdf), DOCX (zipfile), HTML (Parser), sonst direkt als Text decodiert."""
+    low = fname.lower()
+    if low.endswith(".pdf"):
         try:
             import io
             import pypdf
@@ -83,7 +134,45 @@ def extract_text(fname: str, data: bytes) -> tuple[str, str | None]:
             return "", "pypdf fehlt: .venv/bin/pip install pypdf"
         except Exception as e:
             return "", f"PDF-Extraktion fehlgeschlagen: {e}"
+    if low.endswith(".docx"):
+        try:
+            text = extract_docx(data)
+            if not text.strip():
+                return "", "DOCX enthält keinen Text."
+            return text, None
+        except Exception as e:
+            return "", f"DOCX-Extraktion fehlgeschlagen: {e}"
+    if low.endswith((".html", ".htm")):
+        text = html_to_text(data)
+        if not text.strip():
+            return "", "HTML enthält keinen lesbaren Text."
+        return text, None
     return data.decode("utf-8", "ignore"), None
+
+
+def fetch_url(url: str) -> tuple[str, str, str | None]:
+    """URL abrufen -> (text, quellname, warnung). HTML wird zu Text, PDF per
+    pypdf. Nur http/https. Der Nutzer gibt die URL selbst vor."""
+    import urllib.request
+    if not re.match(r"^https?://", url, re.I):
+        return "", url, "Nur http(s)-URLs erlaubt."
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (VaultBot research fetch)"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            ctype = resp.headers.get("Content-Type", "").lower()
+            data = resp.read(25 * 1024 * 1024)  # 25 MB Deckel
+    except Exception as e:
+        return "", url, f"Abruf fehlgeschlagen: {e}"
+    from urllib.parse import urlparse
+    name = Path(urlparse(url).path).name or urlparse(url).netloc or "web"
+    if "pdf" in ctype or url.lower().endswith(".pdf"):
+        text, warn = extract_text(name if name.endswith(".pdf") else name + ".pdf", data)
+        return text, name, warn
+    text = html_to_text(data)
+    if not text.strip():
+        return "", name, "Keine lesbaren Textinhalte auf der Seite."
+    return text, name, None
 
 
 # ---------- HTML ----------
@@ -126,16 +215,27 @@ def home():
     <p class='muted'>Rohdatei hochladen → Draft im Silo → automatischer
     Dedup-/Ordner-Vorschlag → ein Klick in den Kanon.</p>
     <form method='POST' action='/upload' enctype='multipart/form-data' class='card'>
-      <label>Rohdatei (.pdf / .md / .txt)</label>
-      <input type='file' name='file' accept='.pdf,.md,.txt,.markdown,text/*,application/pdf' required>
+      <label>Rohdatei (.pdf / .docx / .html / .md / .txt)</label>
+      <input type='file' name='file' accept='.pdf,.docx,.html,.htm,.md,.txt,.markdown,text/*,application/pdf' required>
       <div class='row'>
         <div><label>Silo</label><select name='silo'>{silo_opts}</select></div>
         <div><label>Titel (optional)</label><input name='title' placeholder='aus Datei ableiten'></div>
       </div>
       <button type='submit'>Hochladen & analysieren</button>
     </form>
-    <p class='muted'>Läuft lokal. PDF-Text wird automatisch extrahiert (pypdf);
-    gescannte PDFs ohne Textebene brauchen OCR.</p>
+
+    <form method='POST' action='/fetch' class='card'>
+      <label>…oder URL (Webseite / arXiv- bzw. SSRN-Abstract / PDF-Link)</label>
+      <input name='url' type='url' placeholder='https://arxiv.org/abs/2303.17564' required>
+      <div class='row'>
+        <div><label>Silo</label><select name='silo'>{silo_opts}</select></div>
+        <div><label>Titel (optional)</label><input name='title' placeholder='aus Seite ableiten'></div>
+      </div>
+      <button type='submit'>Von URL holen & analysieren</button>
+    </form>
+    <p class='muted'>Läuft lokal. PDF/DOCX/HTML werden automatisch zu Text
+    extrahiert; gescannte PDFs ohne Textebene brauchen OCR. Bei URLs wird die
+    Seite abgerufen und der Fließtext übernommen.</p>
     """)
 
 
@@ -241,6 +341,45 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass  # ruhig
 
+    def _ingest(self, text, warn, source_name, fields):
+        """Gemeinsamer Weg für Upload UND URL: Rohtext -> Volltext-Index (bg) ->
+        LLM-Notiz -> Draft im Silo -> Promotion-Plan -> Analyse-Seite."""
+        if warn and not text:
+            return self._send(page(
+                f"<h1>Ingest</h1><p>⚠️ {html.escape(warn)}</p>"
+                f"<p><a href='/'>zurück</a></p>"), 400)
+        silo = re.sub(r"[^\w.-]", "", fields.get("silo", "user_raul")) or "user_raul"
+        title = fields.get("title", "").strip()
+        stem = re.sub(r"[^\w.\- ]", "", Path(source_name).stem) or "upload"
+        silo_dir = ROOT / "drafts" / silo
+        silo_dir.mkdir(parents=True, exist_ok=True)
+
+        # Volltext separat in die 'fulltext'-Collection (getrennt von 'vault').
+        threading.Thread(target=_index_fulltext_bg,
+                         args=(stem, text, source_name), daemon=True).start()
+
+        # Verständnis-Schritt: Rohtext -> saubere, vernetzte Notiz (LLM).
+        note_warn, route = None, {}
+        try:
+            sys.path.insert(0, str(ROOT / "tools"))
+            from summarize import summarize
+            text, route = summarize(text, title or stem)
+        except Exception as e:
+            note_warn = (f"LLM-Zusammenfassung übersprungen ({e}). "
+                         f"Rohtext gespeichert – bitte manuell aufbereiten.")
+            if title and not text.lstrip().startswith("---"):
+                text = f"---\ntitle: {title}\n---\n\n{text}"
+
+        # Draft nach dem echten Notiz-Titel benennen (sprechende Wikilinks).
+        m_t = re.search(r'^title:\s*"?(.+?)"?\s*$', text, re.MULTILINE)
+        note_title = (m_t.group(1).strip() if m_t else "") or stem
+        clean = re.sub(r'[\\/:*?"<>|]', "", note_title).strip() or stem
+        dest = silo_dir / f"{clean}.md"
+        dest.write_text(text, encoding="utf-8")
+        rel = str(dest.relative_to(ROOT))
+        plan = run(["tools/promote.py", "plan", rel])
+        return self._send(analyze_page(rel, plan, note_warn, route))
+
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._send(home())
@@ -258,49 +397,16 @@ class Handler(BaseHTTPRequestHandler):
             if "file" not in files or not files["file"][1]:
                 return self._send(page("<p>Keine Datei. <a href='/'>zurück</a></p>"), 400)
             fname, data = files["file"]
-            silo = re.sub(r"[^\w.-]", "", fields.get("silo", "user_raul")) or "user_raul"
             text, warn = extract_text(fname, data)
-            if warn and not text:
-                return self._send(page(
-                    f"<h1>Upload</h1><p>⚠️ {html.escape(warn)}</p>"
-                    f"<p><a href='/'>zurück</a></p>"), 400)
-            # Dateiname: Original-Endung durch .md ersetzen (kein doppeltes .pdf.md)
-            stem = re.sub(r"[^\w.\- ]", "", Path(fname).stem) or "upload"
-            safe = f"{stem}.md"
-            silo_dir = ROOT / "drafts" / silo
-            silo_dir.mkdir(parents=True, exist_ok=True)
-            dest = silo_dir / safe
-            title = fields.get("title", "").strip()
+            return self._ingest(text, warn, Path(fname).name, fields)
 
-            # Volltext separat sichern: Hintergrund-Indexierung in die
-            # 'fulltext'-Collection (getrennt von 'vault' -> Dedup bleibt sauber).
-            raw = text
-            threading.Thread(
-                target=_index_fulltext_bg, args=(stem, raw, Path(fname).name),
-                daemon=True).start()
-
-            # Verständnis-Schritt: Rohtext -> saubere, vernetzte Notiz (LLM).
-            note_warn, route = None, {}
-            try:
-                sys.path.insert(0, str(ROOT / "tools"))
-                from summarize import summarize
-                text, route = summarize(text, title or Path(fname).stem)
-            except Exception as e:
-                note_warn = (f"LLM-Zusammenfassung übersprungen ({e}). "
-                             f"Rohtext gespeichert – bitte manuell aufbereiten.")
-                if title and not text.lstrip().startswith("---"):
-                    text = f"---\ntitle: {title}\n---\n\n{text}"
-
-            # Draft nach dem echten Notiz-Titel benennen (statt 'w34713' o. ä.),
-            # damit Obsidian-Graph und Wikilinks sprechende Namen zeigen.
-            m_t = re.search(r'^title:\s*"?(.+?)"?\s*$', text, re.MULTILINE)
-            note_title = (m_t.group(1).strip() if m_t else "") or stem
-            clean = re.sub(r'[\\/:*?"<>|]', "", note_title).strip() or stem
-            dest = silo_dir / f"{clean}.md"
-            dest.write_text(text, encoding="utf-8")
-            rel = str(dest.relative_to(ROOT))
-            plan = run(["tools/promote.py", "plan", rel])
-            return self._send(analyze_page(rel, plan, note_warn, route))
+        if self.path == "/fetch":
+            fields = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
+            url = fields.get("url", "").strip()
+            if not url:
+                return self._send(page("<p>Keine URL. <a href='/'>zurück</a></p>"), 400)
+            text, name, warn = fetch_url(url)
+            return self._ingest(text, warn, name, fields)
 
         if self.path == "/discard":
             f = {k: v[0] for k, v in parse_qs(body.decode("utf-8")).items()}
