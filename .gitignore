@@ -30,3 +30,6 @@ __pycache__/
 fulltext/
 Dashboard.md
 .chroma-server/
+
+# Generierte Graph-Insights (offline, kein Kanon)
+_Insights.md
