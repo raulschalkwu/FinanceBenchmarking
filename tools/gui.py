@@ -22,6 +22,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
+
+# Extraktoren zentral (geteilt mit shepherd_mcp.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from extractors import extract_text, fetch_url, html_to_text  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 PORT = 8765
 CANON_RE = re.compile(r"^\d\d ")
@@ -85,150 +89,6 @@ def run(cmd):
     r = subprocess.run([sys.executable, *cmd], cwd=str(ROOT),
                        capture_output=True, text=True)
     return (r.stdout or "") + (r.stderr or "")
-
-
-class _HTMLText(html.parser.HTMLParser):
-    """Minimaler HTML->Text-Extraktor (stdlib, keine Zusatz-Abhängigkeit).
-    Ignoriert script/style/nav/footer, setzt Absatzumbrüche bei Blockelementen."""
-    _SKIP = {"script", "style", "noscript", "head", "nav", "footer", "aside"}
-    _BREAK = {"p", "br", "div", "li", "tr", "h1", "h2", "h3", "h4", "section"}
-
-    def __init__(self):
-        super().__init__()
-        self.parts: list[str] = []
-        self._skip = 0
-
-    def handle_starttag(self, tag, attrs):
-        if tag in self._SKIP:
-            self._skip += 1
-        elif tag in self._BREAK:
-            self.parts.append("\n")
-
-    def handle_endtag(self, tag):
-        if tag in self._SKIP and self._skip:
-            self._skip -= 1
-        elif tag in self._BREAK:
-            self.parts.append("\n")
-
-    def handle_data(self, data):
-        if not self._skip and data.strip():
-            self.parts.append(data)
-
-
-def html_to_text(raw: bytes | str) -> str:
-    s = raw.decode("utf-8", "ignore") if isinstance(raw, bytes) else raw
-    p = _HTMLText()
-    p.feed(s)
-    text = "".join(p.parts)
-    # überflüssige Leerzeilen zusammenfassen
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
-
-
-def extract_docx(data: bytes) -> str:
-    """.docx = ZIP mit word/document.xml. Text aus <w:t>-Elementen, Absätze bei
-    </w:p>. Stdlib-only (zipfile), keine python-docx-Abhängigkeit nötig."""
-    import io
-    import zipfile
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
-        xml = z.read("word/document.xml").decode("utf-8", "ignore")
-    xml = re.sub(r"</w:p>", "\n", xml)
-    xml = re.sub(r"<[^>]+>", "", xml)
-    return re.sub(r"\n{3,}", "\n\n", html.unescape(xml)).strip()
-
-
-def extract_xlsx(data: bytes) -> str:
-    """.xlsx -> kompakte STRUKTUR-Beschreibung (Blätter, Spalten, Zeilenzahl,
-    wenige Beispielzeilen). Bewusst KEINE Rohzellen-Wüste: der Vault soll eine
-    Datensatz-Beschreibung bekommen, keine Tabellendaten."""
-    import io
-    from openpyxl import load_workbook
-    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    out = []
-    for ws in wb.worksheets:
-        rows = ws.iter_rows(values_only=True)
-        header = next(rows, None)
-        cols = [str(c) for c in header if c is not None] if header else []
-        sample = []
-        for i, r in enumerate(rows):
-            if i >= 3:
-                break
-            sample.append(" | ".join("" if c is None else str(c) for c in r))
-        out.append(
-            f"Blatt \"{ws.title}\": {ws.max_row} Zeilen × {ws.max_column} Spalten\n"
-            f"Spalten: {', '.join(cols) or '(keine Kopfzeile)'}\n"
-            + ("Beispielzeilen:\n  " + "\n  ".join(sample) if sample else ""))
-    wb.close()
-    return "\n\n".join(out)
-
-
-def extract_text(fname: str, data: bytes) -> tuple[str, str | None]:
-    """Rohdatei -> Markdown-Text. Gibt (text, warnung) zurück.
-    PDF (pypdf), DOCX/XLSX (zipfile/openpyxl), HTML (Parser), sonst als Text."""
-    low = fname.lower()
-    if low.endswith((".xlsx", ".xlsm")):
-        try:
-            text = extract_xlsx(data)
-            if not text.strip():
-                return "", "Excel-Datei ist leer."
-            return text, None
-        except ImportError:
-            return "", "openpyxl fehlt: .venv/bin/pip install openpyxl"
-        except Exception as e:
-            return "", f"Excel-Extraktion fehlgeschlagen: {e}"
-    if low.endswith(".pdf"):
-        try:
-            import io
-            import pypdf
-            reader = pypdf.PdfReader(io.BytesIO(data))
-            pages = [(p.extract_text() or "").strip() for p in reader.pages]
-            text = "\n\n".join(pg for pg in pages if pg)
-            if not text.strip():
-                return "", ("PDF enthält keinen extrahierbaren Text "
-                            "(vermutlich gescannt/Bild – OCR nötig).")
-            return text, None
-        except ImportError:
-            return "", "pypdf fehlt: .venv/bin/pip install pypdf"
-        except Exception as e:
-            return "", f"PDF-Extraktion fehlgeschlagen: {e}"
-    if low.endswith(".docx"):
-        try:
-            text = extract_docx(data)
-            if not text.strip():
-                return "", "DOCX enthält keinen Text."
-            return text, None
-        except Exception as e:
-            return "", f"DOCX-Extraktion fehlgeschlagen: {e}"
-    if low.endswith((".html", ".htm")):
-        text = html_to_text(data)
-        if not text.strip():
-            return "", "HTML enthält keinen lesbaren Text."
-        return text, None
-    return data.decode("utf-8", "ignore"), None
-
-
-def fetch_url(url: str) -> tuple[str, str, str | None]:
-    """URL abrufen -> (text, quellname, warnung). HTML wird zu Text, PDF per
-    pypdf. Nur http/https. Der Nutzer gibt die URL selbst vor."""
-    import urllib.request
-    if not re.match(r"^https?://", url, re.I):
-        return "", url, "Nur http(s)-URLs erlaubt."
-    try:
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "Mozilla/5.0 (VaultBot research fetch)"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            ctype = resp.headers.get("Content-Type", "").lower()
-            data = resp.read(25 * 1024 * 1024)  # 25 MB Deckel
-    except Exception as e:
-        return "", url, f"Abruf fehlgeschlagen: {e}"
-    from urllib.parse import urlparse
-    name = Path(urlparse(url).path).name or urlparse(url).netloc or "web"
-    if "pdf" in ctype or url.lower().endswith(".pdf"):
-        text, warn = extract_text(name if name.endswith(".pdf") else name + ".pdf", data)
-        return text, name, warn
-    text = html_to_text(data)
-    if not text.strip():
-        return "", name, "Keine lesbaren Textinhalte auf der Seite."
-    return text, name, None
 
 
 # ---------- HTML ----------
