@@ -178,19 +178,68 @@ def fetch_url(url: str) -> tuple[str, str, str | None]:
 # ---------- HTML ----------
 
 CSS = """
-:root{color-scheme:light dark}
+:root{color-scheme:light dark;
+  --acc:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--mut:#8a8a8a;
+  --line:#8884}
 *{box-sizing:border-box}
-body{font:15px/1.5 system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem}
-h1{font-size:1.4rem} h2{font-size:1.1rem;margin-top:1.6rem}
-label{display:block;margin:.7rem 0 .2rem;font-weight:600}
-input,select,textarea,button{font:inherit;padding:.5rem;width:100%;border:1px solid #8886;border-radius:6px;background:transparent;color:inherit}
-button{background:#2563eb;color:#fff;border:0;cursor:pointer;font-weight:600;width:auto;padding:.6rem 1.2rem;margin-top:1rem}
-button.secondary{background:#6b7280}
-pre{background:#8881;padding:1rem;border-radius:8px;overflow:auto;white-space:pre-wrap}
-.card{border:1px solid #8884;border-radius:10px;padding:1.2rem;margin:1rem 0}
-.muted{color:#8a8a8a;font-size:.9rem}
-a.btn{display:inline-block;margin-top:1rem;padding:.6rem 1.2rem;background:#16a34a;color:#fff;border-radius:6px;text-decoration:none}
-.row{display:flex;gap:1rem}.row>div{flex:1}
+body{font:15px/1.55 system-ui,sans-serif;max-width:860px;margin:0 auto;padding:0 1rem 4rem}
+header{display:flex;align-items:baseline;gap:.8rem;padding:1.4rem 0 .2rem}
+header h1{font-size:1.35rem;margin:0}
+header .sub{color:var(--mut);font-size:.9rem}
+h2{font-size:1.05rem;margin:1.6rem 0 .5rem}
+label{display:block;margin:.8rem 0 .25rem;font-weight:600;font-size:.92rem}
+input,select,textarea{font:inherit;padding:.55rem .7rem;width:100%;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit}
+button{font:inherit;background:var(--acc);color:#fff;border:0;border-radius:8px;cursor:pointer;font-weight:600;padding:.65rem 1.3rem}
+button:hover{filter:brightness(1.1)}
+pre{background:#8881;padding:1rem;border-radius:10px;overflow:auto;white-space:pre-wrap;font-size:.85rem}
+.card{border:1px solid var(--line);border-radius:14px;padding:1.3rem 1.4rem;margin:1rem 0}
+.muted{color:var(--mut);font-size:.9rem}
+a.btn{display:inline-block;padding:.6rem 1.2rem;background:var(--ok);color:#fff;border-radius:8px;text-decoration:none;font-weight:600}
+a.btn.gray{background:#6b7280}
+.row{display:flex;gap:1rem;flex-wrap:wrap}.row>div{flex:1;min-width:180px}
+/* Tabs */
+.tabs{display:flex;gap:.4rem;margin-bottom:-1px}
+.tab{padding:.55rem 1.1rem;border:1px solid var(--line);border-bottom:0;
+  border-radius:10px 10px 0 0;cursor:pointer;color:var(--mut);font-weight:600;background:transparent}
+.tab.on{color:inherit;background:#8881}
+.pane{display:none;border:1px solid var(--line);border-radius:0 12px 12px 12px;padding:1.2rem 1.4rem}
+.pane.on{display:block}
+/* Dropzone */
+.drop{border:2px dashed var(--line);border-radius:12px;padding:1.6rem;text-align:center;
+  color:var(--mut);cursor:pointer;transition:border-color .15s}
+.drop.hover{border-color:var(--acc);color:inherit}
+.drop .fname{font-weight:600;color:inherit}
+/* Badges */
+.badge{display:inline-block;padding:.25rem .7rem;border-radius:999px;font-weight:700;font-size:.85rem}
+.badge.ok{background:#16a34a22;color:var(--ok);border:1px solid #16a34a55}
+.badge.warn{background:#d9770622;color:var(--warn);border:1px solid #d9770655}
+.badge.bad{background:#dc262622;color:var(--bad);border:1px solid #dc262655}
+/* Choice rows (Neu vs Ergänzen) */
+.choice{border:1px solid var(--line);border-radius:10px;padding:.8rem 1rem;margin:.5rem 0;cursor:pointer}
+.choice.on{border-color:var(--acc);background:#2563eb11}
+.choice input[type=radio]{width:auto;margin-right:.5rem}
+details{margin:.8rem 0}
+details summary{cursor:pointer;color:var(--mut);font-weight:600}
+/* Loading overlay */
+#load{display:none;position:fixed;inset:0;background:#0008;z-index:9;
+  align-items:center;justify-content:center;flex-direction:column;gap:1rem;color:#fff}
+#load.on{display:flex}
+.spin{width:44px;height:44px;border:4px solid #fff4;border-top-color:#fff;border-radius:50%;
+  animation:r 0.9s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+.steps{font-size:.9rem;opacity:.85;text-align:center;line-height:1.8}
+"""
+
+LOADING_HTML = """
+<div id='load'><div class='spin'></div>
+  <div><b>Analysiere …</b></div>
+  <div class='steps'>1. Text extrahieren · 2. KI liest &amp; fasst zusammen (≈ 30–60&nbsp;s)<br>
+  3. Duplikat-Prüfung · 4. Ablage-Vorschlag</div>
+</div>
+<script>
+function showLoad(){document.getElementById('load').classList.add('on')}
+document.querySelectorAll("form[data-load]").forEach(f=>f.addEventListener("submit",showLoad));
+</script>
 """
 
 
@@ -198,7 +247,9 @@ def page(body: str) -> bytes:
     return (f"<!doctype html><html><head><meta charset='utf-8'>"
             f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
             f"<title>Vault Promotion</title><style>{CSS}</style></head>"
-            f"<body>{body}</body></html>").encode("utf-8")
+            f"<body><header><h1>📥 Vault</h1>"
+            f"<span class='sub'>Wissen rein → KI liest → du entscheidest</span>"
+            f"</header>{body}{LOADING_HTML}</body></html>").encode("utf-8")
 
 
 def opts(values, selected=None):
@@ -211,32 +262,80 @@ def opts(values, selected=None):
 def home():
     silo_opts = opts(silos() or ["user_raul"])
     return page(f"""
-    <h1>📥 Vault Promotion</h1>
-    <p class='muted'>Rohdatei hochladen → Draft im Silo → automatischer
-    Dedup-/Ordner-Vorschlag → ein Klick in den Kanon.</p>
-    <form method='POST' action='/upload' enctype='multipart/form-data' class='card'>
-      <label>Rohdatei (.pdf / .docx / .html / .md / .txt)</label>
-      <input type='file' name='file' accept='.pdf,.docx,.html,.htm,.md,.txt,.markdown,text/*,application/pdf' required>
-      <div class='row'>
-        <div><label>Silo</label><select name='silo'>{silo_opts}</select></div>
-        <div><label>Titel (optional)</label><input name='title' placeholder='aus Datei ableiten'></div>
+    <p class='muted'>Paper, Artikel oder Dokument hineingeben – die KI liest es,
+    schreibt eine vernetzte Notiz, prüft auf Duplikate und schlägt die Ablage
+    vor. In den Kanon kommt nichts ohne deinen Klick.</p>
+
+    <div class='tabs'>
+      <button class='tab on' id='t-file' onclick='tab("file")' type='button'>📄 Datei</button>
+      <button class='tab' id='t-url' onclick='tab("url")' type='button'>🔗 URL</button>
+    </div>
+
+    <form method='POST' action='/upload' enctype='multipart/form-data'
+          class='pane on' id='p-file' data-load>
+      <div class='drop' id='drop' onclick='document.getElementById(\"fi\").click()'>
+        <div class='fname' id='fname'>Datei hierher ziehen oder klicken</div>
+        <div class='muted'>PDF · DOCX · HTML · Markdown · TXT</div>
       </div>
-      <button type='submit'>Hochladen & analysieren</button>
+      <input type='file' name='file' id='fi' style='display:none'
+             accept='.pdf,.docx,.html,.htm,.md,.txt,.markdown,text/*,application/pdf' required>
+      <div class='row'>
+        <div><label>Dein Silo</label><select name='silo'>{silo_opts}</select></div>
+        <div><label>Titel <span class='muted'>(optional)</span></label>
+             <input name='title' placeholder='aus Datei ableiten'></div>
+      </div>
+      <p><button type='submit'>Analysieren →</button></p>
     </form>
 
-    <form method='POST' action='/fetch' class='card'>
-      <label>…oder URL (Webseite / arXiv- bzw. SSRN-Abstract / PDF-Link)</label>
+    <form method='POST' action='/fetch' class='pane' id='p-url' data-load>
+      <label>Link zu Webseite, arXiv/SSRN-Abstract oder PDF</label>
       <input name='url' type='url' placeholder='https://arxiv.org/abs/2303.17564' required>
       <div class='row'>
-        <div><label>Silo</label><select name='silo'>{silo_opts}</select></div>
-        <div><label>Titel (optional)</label><input name='title' placeholder='aus Seite ableiten'></div>
+        <div><label>Dein Silo</label><select name='silo'>{silo_opts}</select></div>
+        <div><label>Titel <span class='muted'>(optional)</span></label>
+             <input name='title' placeholder='aus Seite ableiten'></div>
       </div>
-      <button type='submit'>Von URL holen & analysieren</button>
+      <p><button type='submit'>Holen &amp; analysieren →</button></p>
     </form>
-    <p class='muted'>Läuft lokal. PDF/DOCX/HTML werden automatisch zu Text
-    extrahiert; gescannte PDFs ohne Textebene brauchen OCR. Bei URLs wird die
-    Seite abgerufen und der Fließtext übernommen.</p>
+
+    <p class='muted'>Läuft komplett lokal · gescannte PDFs ohne Textebene
+    brauchen OCR · Volltext wird für die Tiefensuche mit-indexiert.</p>
+
+    <script>
+    function tab(w){{
+      for (const x of ['file','url']){{
+        document.getElementById('t-'+x).classList.toggle('on', x===w);
+        document.getElementById('p-'+x).classList.toggle('on', x===w);
+      }}
+    }}
+    const drop=document.getElementById('drop'), fi=document.getElementById('fi');
+    fi.addEventListener('change',()=>{{
+      if(fi.files.length) document.getElementById('fname').textContent='📄 '+fi.files[0].name;
+    }});
+    for(const ev of ['dragover','dragenter'])
+      drop.addEventListener(ev,e=>{{e.preventDefault();drop.classList.add('hover')}});
+    for(const ev of ['dragleave','drop'])
+      drop.addEventListener(ev,e=>{{e.preventDefault();drop.classList.remove('hover')}});
+    drop.addEventListener('drop',e=>{{
+      if(e.dataTransfer.files.length){{fi.files=e.dataTransfer.files;
+        document.getElementById('fname').textContent='📄 '+fi.files[0].name;}}
+    }});
+    </script>
     """)
+
+
+def verdict_badge(plan_out: str) -> str:
+    """Aus dem plan-Output ein klares Verdikt destillieren."""
+    if "EXISTIERT BEREITS" in plan_out:
+        return ("<span class='badge bad'>⛔ Existiert bereits</span> "
+                "<span class='muted'>– Draft besser verwerfen oder in die "
+                "bestehende Notiz ergänzen.</span>")
+    if "ERGÄNZEN" in plan_out.upper():
+        return ("<span class='badge warn'>✏️ Ähnliche Notiz vorhanden</span> "
+                "<span class='muted'>– prüfen, ob Ergänzen besser ist als neu "
+                "anlegen.</span>")
+    return ("<span class='badge ok'>✅ Neues Wissen</span> "
+            "<span class='muted'>– kein Duplikat gefunden.</span>")
 
 
 def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
@@ -245,8 +344,6 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
     note_md = (ROOT / draft_rel).read_text(encoding="utf-8")
     warn_html = (f"<div class='card' style='border-color:#f59e0b'>⚠️ "
                  f"{html.escape(note_warn)}</div>") if note_warn else ""
-    note_html = (f"<h2>Erzeugte Notiz (Vorschau)</h2>"
-                 f"<pre>{html.escape(note_md.strip())}</pre>")
     # Vorauswahl: LLM-Route zuerst, Plan-Heuristik als Fallback.
     sug_folder = route.get("folder")
     if not sug_folder:
@@ -262,49 +359,83 @@ def analyze_page(draft_rel: str, plan_out: str, note_warn: str | None = None,
             mm = re.search(r"(01 Research Streams/.+\.md|12 Literature Maps/.+\.md)", line)
             if mm and mm.group(1) in bl:
                 bl_default = mm.group(1); break
+    into_checked = "checked" if into_default and not sug_folder else ""
+    new_checked = "" if into_checked else "checked"
     return page(f"""
-    <h1>🔎 Analyse</h1>
-    <p class='muted'>Draft: <code>{html.escape(draft_rel)}</code> ·
-    Volltext wird im Hintergrund indexiert (Collection <code>fulltext</code>,
-    Suche: <code>tools/fulltext_index.py search "…"</code>)</p>
+    <p>{verdict_badge(plan_out)}</p>
     {warn_html}
-    {note_html}
-    <h2>Automatischer Vorschlag (Dedup + Ordner + Backlinks)</h2>
-    <pre>{html.escape(plan_out.strip() or '(kein Output)')}</pre>
 
-    <form method='POST' action='/promote' class='card'>
+    <h2>1 · Erzeugte Notiz <span class='muted'>(landet in deinem Silo)</span></h2>
+    <details><summary>Vorschau anzeigen — {html.escape(draft_rel)}</summary>
+    <pre>{html.escape(note_md.strip())}</pre></details>
+    <details><summary>Details der Duplikat-/Ablage-Analyse</summary>
+    <pre>{html.escape(plan_out.strip() or '(kein Output)')}</pre></details>
+
+    <form method='POST' action='/promote' class='card' data-load>
       <input type='hidden' name='draft' value='{html.escape(draft_rel)}'>
-      <h2>In den Kanon promoten</h2>
-      <p class='muted'>Bei ähnlicher bestehender Notiz → „Ergänzen" wählen,
-      sonst neuen Ordner. Rückverlink ist Pflicht (keine isolierten Notizen).</p>
-      <label>NEU: Zielordner</label>
-      <select name='folder'>{opts([''] + canon_folders(), sug_folder)}</select>
-      <label>ODER Ergänzen: bestehende Notiz (Pfad, überschreibt Ordner)</label>
-      <input name='into' value='{html.escape(into_default)}' placeholder='z.B. 03 Papers/NewsNet-SDF.md'>
-      <label>Rückverlink-Ziel (Stream/Map, Pflicht)</label>
+      <h2 style='margin-top:0'>2 · In den Kanon übernehmen</h2>
+
+      <div class='choice' id='c-new' onclick='mode("new")'>
+        <label style='margin:0;cursor:pointer'>
+          <input type='radio' name='mode' value='new' {new_checked}>
+          🆕 Als neue Notiz anlegen</label>
+        <div id='f-new' style='margin-top:.6rem'>
+          <select name='folder'>{opts([''] + canon_folders(), sug_folder)}</select>
+        </div>
+      </div>
+
+      <div class='choice' id='c-into' onclick='mode("into")'>
+        <label style='margin:0;cursor:pointer'>
+          <input type='radio' name='mode' value='into' {into_checked}>
+          ✏️ Bestehende Notiz ergänzen</label>
+        <div id='f-into' style='margin-top:.6rem'>
+          <input name='into' value='{html.escape(into_default)}'
+                 placeholder='Pfad, z. B. 03 Papers/NewsNet-SDF.md'>
+        </div>
+      </div>
+
+      <label>Rückverlinken in <span class='muted'>(Pflicht – keine isolierten
+      Notizen)</span></label>
       <select name='backlink'>{opts(bl, bl_default)}</select>
-      <label><input type='checkbox' name='push' value='1' style='width:auto'> Branch + PR erstellen (push)</label>
-      <button type='submit'>✅ Promoten</button>
-      <a class='btn' style='background:#6b7280' href='/'>Abbrechen</a>
+
+      <label style='font-weight:400'><input type='checkbox' name='push' value='1'
+        style='width:auto'> gleich Branch + PR erstellen (push)</label>
+      <p style='margin-bottom:0'>
+        <button type='submit'>✅ Übernehmen</button>
+        &nbsp;<a class='btn gray' href='/'>Abbrechen</a></p>
     </form>
-    <form method='POST' action='/discard' class='card'>
+
+    <form method='POST' action='/discard'>
       <input type='hidden' name='draft' value='{html.escape(draft_rel)}'>
-      <p class='muted'>Schon im Kanon vorhanden oder doch nicht brauchbar?
-      Draft löschen (nur die Datei im Silo, der Kanon bleibt unberührt).</p>
-      <button type='submit' style='background:#dc2626'>🗑 Draft verwerfen</button>
+      <button type='submit' style='background:var(--bad)'>🗑 Draft verwerfen</button>
+      <span class='muted'> löscht nur die Silo-Datei, der Kanon bleibt unberührt</span>
     </form>
+
+    <script>
+    function mode(w){{
+      document.getElementById('c-new').classList.toggle('on', w==='new');
+      document.getElementById('c-into').classList.toggle('on', w==='into');
+      document.querySelector('#c-new input[type=radio]').checked = (w==='new');
+      document.querySelector('#c-into input[type=radio]').checked = (w==='into');
+    }}
+    mode(document.querySelector('input[name=mode]:checked').value);
+    </script>
     """)
 
 
 def result_page(out: str):
     m = re.search(r"(https://github\.com/\S+/compare/\S+)", out)
     pr = (f"<a class='btn' href='{html.escape(m.group(1))}' target='_blank'>"
-          f"→ PR öffnen</a>") if m else ""
+          f"→ PR öffnen</a> ") if m else ""
+    failed = ("FEHLER" in out.upper() or "ABBRUCH" in out.upper()
+              or "TRACEBACK" in out.upper())
+    head = ("<span class='badge bad'>❌ Fehlgeschlagen</span>" if failed
+            else "<span class='badge ok'>✅ Übernommen</span>")
     return page(f"""
-    <h1>Ergebnis</h1>
-    <pre>{html.escape(out.strip() or '(kein Output)')}</pre>
-    {pr}
-    <p><a class='btn' style='background:#6b7280' href='/'>Neue Datei</a></p>
+    <p>{head}</p>
+    <details {"open" if failed else ""}><summary>Protokoll</summary>
+    <pre>{html.escape(out.strip() or '(kein Output)')}</pre></details>
+    <p>{pr}<a class='btn gray' href='/'>Nächstes Dokument</a></p>
     """)
 
 
@@ -428,12 +559,16 @@ class Handler(BaseHTTPRequestHandler):
             if not draft or not backlink:
                 return self._send(page("<p>Draft/Backlink fehlt. <a href='/'>zurück</a></p>"), 400)
             cmd = ["tools/promote.py", "apply", draft, "--backlink", backlink]
-            if f.get("into"):
+            mode = f.get("mode", "")
+            if mode == "into" and f.get("into"):
                 cmd += ["--into", f["into"]]
-            elif f.get("folder"):
+            elif mode != "into" and f.get("folder"):
                 cmd += ["--folder", f["folder"]]
+            elif f.get("into"):   # Fallback ohne mode-Feld (alte Formulare)
+                cmd += ["--into", f["into"]]
             else:
-                return self._send(page("<p>Ordner ODER 'into' wählen. <a href='/'>zurück</a></p>"), 400)
+                return self._send(page("<p>Zielordner bzw. Notiz wählen. "
+                                       "<a href='/'>zurück</a></p>"), 400)
             if f.get("push"):
                 cmd += ["--push"]
             out = run(cmd)
