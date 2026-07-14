@@ -26,3 +26,6 @@ scikit-learn>=1.3
 # sentence-transformers-Encoder einhängt (statt des ONNX-Defaults).
 # Achtung: zieht PyTorch. Auf Intel-macOS ggf. Versionen pinnen.
 # sentence-transformers>=3.0
+
+# Excel-Struktur-Extraktion (tools/gui.py). Leicht, kein PyTorch.
+openpyxl>=3.1

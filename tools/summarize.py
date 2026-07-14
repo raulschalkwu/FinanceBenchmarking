@@ -104,46 +104,81 @@ def nearest_notes(text: str, n: int = 15) -> list[str]:
         return []
 
 
-def summarize(raw_text: str, title_hint: str = "") -> str:
+# Pro Inhaltstyp die Pflicht-Sektionen. Der LLM klassifiziert selbst und nimmt
+# die passende Struktur – so wird ein Datensatz nicht in "Research Question"
+# gepresst und eine Verordnung nicht in "Methodology".
+TYPE_TEMPLATES = {
+    "paper": "## Metadata, ## Research Question, ## Data, ## Methodology, "
+             "## Main Findings, ## Contributions, ## Related",
+    "dataset": "## Übersicht, ## Struktur (Blätter/Spalten), ## Zeitraum & Quelle, "
+               "## Lizenz & Zugang, ## Mögliche Nutzung, ## Related",
+    "regulation": "## Worum geht es, ## Was ändert sich, ## Ab wann, "
+                  "## Betroffene Standards, ## Auswirkung (Forschung & Praxis), "
+                  "## Related",
+    "concept": "## Definition, ## Kontext, ## Related",
+    "method": "## Idee, ## Anwendung, ## Related",
+    "other": "## Übersicht, ## Kernpunkte, ## Related",
+}
+# Typ -> bevorzugter bestehender Kanon-Ordner (per Nummer-Präfix gematcht).
+TYPE_FOLDER = {"paper": "03", "dataset": "07", "concept": "02",
+               "method": "06", "regulation": None}  # None = evtl. neuer Ordner
+
+
+def next_folder_number() -> str:
+    nums = [int(m.group(1)) for f in canon_folders()
+            if (m := re.match(r"^(\d\d) ", f))]
+    return f"{(max(nums) + 1) if nums else 13:02d}"
+
+
+def summarize(raw_text: str, title_hint: str = "") -> tuple[str, dict]:
     import anthropic
-    # Credential: expliziter ANTHROPIC_API_KEY ODER SDK-Auto-Discovery
-    # (z. B. Claude-Login). Kein harter Check – Auth-Fehler kommt sonst klar
-    # von der API zurück.
+    # Credential: expliziter ANTHROPIC_API_KEY ODER SDK-Auto-Discovery.
     allowed = all_note_stems()
     near = nearest_notes(raw_text)
     allowed_block = "\n".join(f"- {s}" for s in allowed)
     near_block = ", ".join(f"[[{s}]]" for s in near) or "(keine)"
+    folders = canon_folders()
+    targets = backlink_targets()
+    tmpl_block = "\n".join(f"- {t}: {s}" for t, s in TYPE_TEMPLATES.items())
 
     system = (
         "Du bist Redakteur einer geteilten Obsidian-Research-Wissensdatenbank "
         "(Institute for Accounting & Auditing, WU Wien; Thema AI/ML in Valuation "
-        "& Accounting). Du machst aus PDF-Rohtext eines Papers EINE saubere, "
+        "& Accounting). Du machst aus dem Rohtext EINES Dokuments EINE saubere, "
         "vernetzte Notiz.\n\n"
+        "ABLAUF:\n"
+        "A. KLASSIFIZIERE das Dokument in genau einen Typ: paper, dataset, "
+        "regulation, concept, method, other. (dataset = Datenbeschreibung/"
+        "Tabellen-Export; regulation = Gesetz/Standard/Verordnung/Regulierungs-"
+        "Update.)\n"
+        "B. Nimm die zum Typ passende Sektions-Struktur (Liste unten).\n\n"
         "HARTE REGELN:\n"
-        "1. Gib NUR die Markdown-Notiz aus, nichts davor/danach.\n"
-        "2. Struktur exakt wie im Beispiel: Frontmatter (title, created, tags), "
-        "H1, dann ## Metadata, ## Research Question, ## Data, ## Methodology, "
-        "## Main Findings, ## Contributions, ## Related.\n"
-        "3. Fasse nur PROSA zusammen. Ignoriere Formeln, Tabellen, Zeichen-"
-        "wirrwarr aus der PDF-Extraktion – niemals solchen Müll übernehmen.\n"
-        "4. [[Wikilinks]] NUR aus der erlaubten Liste unten. Erfinde NIE einen "
-        "Link, der nicht exakt in der Liste steht. Im Zweifel nicht verlinken.\n"
-        "5. In ## Related MÜSSEN mindestens ein Stream und (falls passend) eine "
-        "Map aus der erlaubten Liste stehen – so wird die Notiz vernetzt.\n"
+        "1. Gib NUR die Markdown-Notiz aus, nichts davor/danach (außer der "
+        "ROUTE-Zeile ganz oben).\n"
+        "2. Frontmatter (title, created, tags inkl. dem Typ als Tag), H1, dann "
+        "die Sektionen des gewählten Typs, letzte Sektion IMMER ## Related.\n"
+        "3. Nur PROSA/Fakten zusammenfassen. Ignoriere Formel-/Zeichen-Müll aus "
+        "der Extraktion. Bei Datensätzen: Spalten/Struktur beschreiben, NICHT "
+        "Rohzellen abschreiben.\n"
+        "4. [[Wikilinks]] NUR aus der erlaubten Liste. Erfinde NIE einen Link.\n"
+        "5. In ## Related mindestens einen passenden Stream/Map aus der "
+        "erlaubten Liste (gegen Isolation).\n"
         "6. Deutsch schreiben, Fachbegriffe/Titel im Original.\n"
-        "7. ALLERERSTE Zeile deiner Antwort (vor dem Frontmatter) ist deine "
-        "Ablage-Empfehlung, exakt in diesem Format:\n"
-        '   ROUTE: folder="<einer der Kanon-Ordner>" backlink="<ein Pfad aus '
-        'der Backlink-Ziel-Liste>"\n'
-        "   Wähle den Ordner nach Inhaltstyp (Paper -> 03 Papers, Methode -> "
-        "06 Methods, Konzept -> 02 Concepts, ...) und als backlink den "
-        "thematisch passendsten Stream bzw. die passendste Map.\n"
+        "7. ALLERERSTE Zeile, exakt dieses Format:\n"
+        '   ROUTE: type="<typ>" folder="<Kanon-Ordner ODER leer>" '
+        'backlink="<Pfad aus Backlink-Liste>" newfolder="<leer ODER kurzer '
+        'Ordnername>"\n'
+        "   Wähle folder aus den bestehenden Kanon-Ordnern nach Typ (paper->"
+        "03 Papers, dataset->07 Datasets, method->06 Methods, concept->"
+        "02 Concepts). Wenn KEIN bestehender Ordner zum Typ passt (z. B. eine "
+        "Verordnung und es gibt keinen Regulierungs-Ordner): folder=\"\" lassen "
+        "und in newfolder einen kurzen, generischen Ordnernamen OHNE Nummer "
+        "vorschlagen (z. B. \"Regulation\"). Sonst newfolder=\"\".\n"
     )
-    folders = canon_folders()
-    targets = backlink_targets()
     user = (
-        f"STIL-BEISPIEL:\n{STYLE_EXAMPLE}\n\n"
-        f"KANON-ORDNER (für ROUTE folder):\n"
+        f"SEKTIONS-STRUKTUR JE TYP:\n{tmpl_block}\n\n"
+        f"STIL-BEISPIEL (Typ paper):\n{STYLE_EXAMPLE}\n\n"
+        f"BESTEHENDE KANON-ORDNER (für ROUTE folder):\n"
         + "\n".join(f"- {f}" for f in folders) + "\n\n"
         f"BACKLINK-ZIELE (für ROUTE backlink, exakter Pfad):\n"
         + "\n".join(f"- {t}" for t in targets) + "\n\n"
@@ -152,15 +187,13 @@ def summarize(raw_text: str, title_hint: str = "") -> str:
         f"ERLAUBTE WIKILINK-ZIELE (nur diese Namen sind gültige Links):\n"
         f"{allowed_block}\n\n"
         f"DATEINAME/HINWEIS: {title_hint}\n\n"
-        f"PDF-ROHTEXT (Prosa zusammenfassen, Müll ignorieren):\n"
+        f"ROHTEXT (zusammenfassen, Müll ignorieren):\n"
         f"{raw_text[:MAX_CHARS]}"
     )
     client = anthropic.Anthropic()
     msg = client.messages.create(
-        model=MODEL, max_tokens=4096,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
+        model=MODEL, max_tokens=4096, system=system,
+        messages=[{"role": "user", "content": user}])
     note = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     if msg.stop_reason == "max_tokens":
         raise RuntimeError("Zusammenfassung wurde abgeschnitten (max_tokens) – "
@@ -168,16 +201,22 @@ def summarize(raw_text: str, title_hint: str = "") -> str:
     if "## Related" not in note:
         raise RuntimeError("Zusammenfassung unvollständig (## Related fehlt).")
 
-    # ROUTE-Zeile abtrennen und gegen echte Ordner/Ziele validieren.
+    # ROUTE-Zeile abtrennen und validieren.
     route = {}
-    m = re.match(r'^\s*ROUTE:\s*folder="([^"]*)"\s*backlink="([^"]*)"\s*\n',
-                 note)
+    m = re.match(r'^\s*ROUTE:\s*type="([^"]*)"\s*folder="([^"]*)"\s*'
+                 r'backlink="([^"]*)"\s*(?:newfolder="([^"]*)"\s*)?\n', note)
     if m:
         note = note[m.end():]
-        if m.group(1) in folders:
-            route["folder"] = m.group(1)
-        if m.group(2) in targets:
-            route["backlink"] = m.group(2)
+        route["type"] = m.group(1).strip()
+        if m.group(2) in folders:
+            route["folder"] = m.group(2)
+        elif (m.group(4) or "").strip():
+            # Vorgeschlagener NEUER Ordner: Nummer vergeben, als Vorschlag markieren.
+            name = re.sub(r'[\\/:*?"<>|]', "", m.group(4).strip())
+            route["folder"] = f"{next_folder_number()} {name}"
+            route["new_folder"] = True
+        if m.group(3) in targets:
+            route["backlink"] = m.group(3)
     return sanitize_links(note.strip(), set(allowed)), route
 
 

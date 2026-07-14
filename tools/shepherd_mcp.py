@@ -95,6 +95,45 @@ def dedup_check(text: str) -> str:
 
 
 @mcp.tool()
+def ingest_document(silo: str, source: str, title: str = "") -> str:
+    """VOLLER Upload-Weg per Chat: gib eine URL, einen Dateipfad ODER direkt
+    Rohtext an. Der Vault extrahiert den Text, die KI erkennt den Typ
+    (Paper/Datensatz/Regulierung/…), schreibt eine vernetzte Notiz, schlägt
+    Ordner + Backlink vor (bei Bedarf auch einen NEUEN Ordner) und legt alles
+    als Draft in deinen Silo. Danach promotion_plan zum Prüfen.
+
+    So kann ein Nutzer einfach sagen: „lad mir das in den Vault: <Datei/URL>".
+    Braucht ANTHROPIC_API_KEY (LLM-Verständnis-Schritt). Mediendateien
+    (Audio/Video) müssen vorher zu Text/Transkript werden – reine Binärdateien
+    kann der Schritt nicht lesen."""
+    from extractors import extract_any
+    from summarize import summarize
+    silo_clean = re.sub(r"[^\w.-]", "", silo)
+    if not silo_clean:
+        return "FEHLER: ungültiger Silo-Name."
+    text, srcname, warn = extract_any(source)
+    if warn and not text:
+        return f"FEHLER: {warn}"
+    try:
+        note, route = summarize(text, title or srcname)
+    except Exception as e:
+        return f"FEHLER beim Verständnis-Schritt: {e}"
+    m = re.search(r"^#\s+(.+)$", note, re.MULTILINE)
+    fname = re.sub(r'[\\/:*?"<>|]', "", (m.group(1) if m else title or srcname)).strip() or "notiz"
+    d = ROOT / "drafts" / silo_clean
+    d.mkdir(parents=True, exist_ok=True)
+    rel = f"drafts/{silo_clean}/{fname}.md"
+    (ROOT / rel).write_text(note, encoding="utf-8")
+    nf = " (Vorschlag: NEUER Ordner)" if route.get("new_folder") else ""
+    return (f"Draft angelegt: {rel}\n"
+            f"Erkannter Typ: {route.get('type', '?')} · "
+            f"Ordner-Vorschlag: {route.get('folder', '?')}{nf} · "
+            f"Backlink: {route.get('backlink', '?')}\n"
+            f"Nächster Schritt: promotion_plan('{rel}') – und dann committen/"
+            f"pushen; in den Kanon hebt es ein Maintainer über die Promotion.")
+
+
+@mcp.tool()
 def submit_draft(silo: str, title: str, content: str) -> str:
     """Eine Notiz als Draft in einen Schreib-Silo legen (drafts/<silo>/).
     Das ist der EINZIGE erlaubte Schreibweg für Agenten – der Kanon (Ordner
