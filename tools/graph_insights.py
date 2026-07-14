@@ -191,6 +191,68 @@ def latent_themes(stems, mat, sim: float, path_of, member,
 
 
 # ---------------------------------------------------------------------------
+# 2b. Sub-Maps: dichte Sub-Themen INNERHALB eines bereits gemappten Bereichs
+# ---------------------------------------------------------------------------
+def sub_maps(stems, mat, submap_sim: float, path_of, member,
+             min_size: int = 4, latent_stems: set[str] | None = None) -> list[dict]:
+    """Findet feinere Cluster (strengere Schwelle als latent_themes), die
+    überwiegend UNTER EINER gemeinsamen bestehenden Map liegen und groß genug
+    sind, um eine eigene Sub-Map / einen eigenen Research Stream zu verdienen.
+
+    Motiv: der Forschungsfokus (z. B. 'ICC via ML') geht bei grober Auflösung im
+    Mega-Cluster unter und ist durch die Map bereits abgedeckt – taucht also
+    weder als latentes Thema noch sonst auf. Bei feiner Auflösung separiert er
+    sich sauber und ist ein Kandidat für eine spezialisierte Sub-Map.
+
+    Abgrenzung zu latent_themes: latente Themen haben KEINE (dominante) Map;
+    Sub-Maps haben eine klar dominante Map und sind ein Teilbereich davon.
+    """
+    from sklearn.cluster import AgglomerativeClustering
+    latent_stems = latent_stems or set()
+    keep = [i for i, s in enumerate(stems)
+            if folder_num(path_of.get(s, "")) in CONTENT_FOLDERS]
+    if len(keep) < min_size:
+        return []
+    sub_stems = [stems[i] for i in keep]
+    sub_mat = mat[keep]
+    labels = AgglomerativeClustering(
+        n_clusters=None, metric="cosine", linkage="average",
+        distance_threshold=1.0 - submap_sim).fit_predict(sub_mat)
+    clusters: dict[int, list[str]] = defaultdict(list)
+    for s, lab in zip(sub_stems, labels):
+        clusters[lab].append(s)
+
+    out = []
+    for members in clusters.values():
+        if len(members) < min_size:
+            continue
+        # dominante Map bestimmen (häufigste Map unter den Mitgliedern)
+        map_count: dict[str, int] = defaultdict(int)
+        for s in members:
+            for mp in member.get(s, ()):  # nur echte Literature Maps
+                map_count[mp] += 1
+        if not map_count:
+            continue  # keine Map -> das ist ein latentes Thema, nicht Sub-Map
+        dom_map, dom_n = max(map_count.items(), key=lambda kv: kv[1])
+        dominance = dom_n / len(members)
+        # Kandidat nur, wenn der Cluster wirklich zu EINER Map gehört (kohärentes
+        # Teilgebiet), nicht quer über mehrere Maps streut.
+        if dominance < 0.6:
+            continue
+        # Cluster, die schon als latentes Thema gemeldet werden, nicht doppeln.
+        if latent_stems and set(members) <= latent_stems:
+            continue
+        out.append({
+            "members": sorted(members),
+            "dominant_map": dom_map,
+            "dominance": dominance,
+        })
+    # größte, kohärenteste zuerst
+    out.sort(key=lambda c: (len(c["members"]), c["dominance"]), reverse=True)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 3. Indirekte Verbindungen: stark über Zwischenknoten, aber nicht direkt verlinkt
 # ---------------------------------------------------------------------------
 def indirect_links(stems, mat, links: set[tuple[str, str]], path_of,
@@ -278,7 +340,7 @@ def indirect_links(stems, mat, links: set[tuple[str, str]], path_of,
 # ---------------------------------------------------------------------------
 # 4. Report
 # ---------------------------------------------------------------------------
-def render(themes, indirect, path_of, sim, knn, topn) -> str:
+def render(themes, submaps, indirect, path_of, sim, submap_sim, knn, topn) -> str:
     L = []
     L.append("---")
     L.append("title: \"_Insights (generiert)\"")
@@ -288,7 +350,8 @@ def render(themes, indirect, path_of, sim, knn, topn) -> str:
     L.append("")
     L.append("> Automatisch generiert von `tools/graph_insights.py` "
              "(offline, kein LLM). Nicht editieren – wird überschrieben. "
-             f"Parameter: sim≥{sim}, knn={knn}, topn={topn}.")
+             f"Parameter: sim≥{sim}, submap-sim≥{submap_sim}, knn={knn}, "
+             f"topn={topn}.")
     L.append("")
 
     L.append("## 1. Latente Themen ohne eigene Literature Map")
@@ -308,6 +371,26 @@ def render(themes, indirect, path_of, sim, knn, topn) -> str:
             L.append(f"Vorhandene Maps: {maps}")
             L.append("")
             for s in t["members"]:
+                L.append(f"- [[{s}]]")
+            L.append("")
+
+    L.append("## 1b. Sub-Map-Kandidaten (dichtes Teilgebiet einer bestehenden Map)")
+    L.append("")
+    if not submaps:
+        L.append("_Keine – keine bestehende Map zerfällt bei feiner Auflösung in "
+                 "ein abgrenzbares Teilgebiet._")
+    else:
+        L.append("Feinere, in sich geschlossene Sub-Themen INNERHALB einer "
+                 "bereits gemappten Fläche. Groß und kohärent genug für eine "
+                 "eigene **Sub-Map** bzw. einen eigenen **Research Stream** "
+                 "unterhalb der übergeordneten Map:")
+        L.append("")
+        for i, sm in enumerate(submaps, 1):
+            dom = int(sm["dominance"] * 100)
+            L.append(f"### Sub-Map {i} · {len(sm['members'])} Notizen · "
+                     f"{dom}% unter [[{sm['dominant_map']}]]")
+            L.append("")
+            for s in sm["members"]:
                 L.append(f"- [[{s}]]")
             L.append("")
 
@@ -336,6 +419,10 @@ def main() -> int:
                     help="indirekte Verbindungen pro Notiz (Default 3)")
     ap.add_argument("--min-cluster", type=int, default=4,
                     help="Mindestgröße eines latenten Clusters (Default 4)")
+    ap.add_argument("--submap-sim", type=float, default=0.74,
+                    help="feinere Schwelle für Sub-Map-Kandidaten (Default 0.74)")
+    ap.add_argument("--submap-min", type=int, default=4,
+                    help="Mindestgröße eines Sub-Map-Kandidaten (Default 4)")
     ap.add_argument("--max-obvious", type=float, default=0.68,
                     help="indirekte Links mit direct_sim darüber verwerfen "
                          "(zu offensichtlich; Default 0.68)")
@@ -350,17 +437,21 @@ def main() -> int:
 
     themes = latent_themes(stems, mat, args.sim, path_of, member,
                            args.min_cluster)
+    latent_stems = {s for t in themes for s in t["members"]}
+    submaps = sub_maps(stems, mat, args.submap_sim, path_of, member,
+                       args.submap_min, latent_stems)
     indirect = indirect_links(stems, mat, links, path_of, args.knn,
                               args.topn, max_obvious=args.max_obvious)
-    report = render(themes, indirect, path_of, args.sim, args.knn, args.topn)
+    report = render(themes, submaps, indirect, path_of, args.sim,
+                    args.submap_sim, args.knn, args.topn)
 
     if args.stdout:
         print(report)
     else:
         OUT_FILE.write_text(report, encoding="utf-8")
         print(f"Geschrieben: {OUT_FILE.relative_to(ROOT)}  "
-              f"({len(themes)} latente Themen, {len(indirect)} Notizen mit "
-              f"indirekten Verbindungen)")
+              f"({len(themes)} latente Themen, {len(submaps)} Sub-Map-Kandidaten, "
+              f"{len(indirect)} Notizen mit indirekten Verbindungen)")
     return 0
 
 
