@@ -15,7 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DB_DIR = ROOT / ".vectordb"
 COLLECTION = "vault"
-THRESHOLD = 0.80  # Cosine-Ähnlichkeit, ab der gewarnt wird
+THRESHOLD = 0.55  # Cosine-Ähnlichkeit, ab der gewarnt wird (ONNX-MiniLM-kalibriert;
+#                   verwandte Notizen liegen oft 0.3–0.6, 0.80 war unrealistisch)
 
 
 def query_file(col, path: Path):
@@ -26,31 +27,29 @@ def query_file(col, path: Path):
                     include=["metadatas", "distances"])
     metas = res.get("metadatas", [[]])[0]
     dists = res.get("distances", [[]])[0]
-    hits = []
-    for m, d in zip(metas, dists):
-        sim = 1.0 - d  # Chroma liefert Distanz; cos-Sim ≈ 1 - Distanz
-        if sim >= THRESHOLD:
-            hits.append((sim, m.get("note"), m.get("path")))
-    if hits:
+    ranked = sorted(((1.0 - d, m.get("note"), m.get("path"))
+                     for m, d in zip(metas, dists)), reverse=True)
+    warn = [h for h in ranked if h[0] >= THRESHOLD]
+    if warn:
         print(f"\n⚠️  {path.relative_to(ROOT)} ähnelt bestehenden Kanon-Notizen:")
-        for sim, note, p in hits:
+        for sim, note, p in warn:
             print(f"    {sim:.2f}  [[{note}]]  ({p})")
-        print("    → Statt neu anlegen: bestehende Notiz ergänzen (siehe PROMOTION.md).")
+        print("    → Prüfen: bestehende Notiz ergänzen statt neu (siehe PROMOTION.md).")
+    elif ranked:
+        sim, note, p = ranked[0]
+        print(f"OK  {path.relative_to(ROOT)} – kein starker Treffer "
+              f"(nächster: [[{note}]] {sim:.2f} < {THRESHOLD}).")
     else:
-        print(f"OK  {path.relative_to(ROOT)} – kein naher Treffer im Kanon.")
+        print(f"OK  {path.relative_to(ROOT)} – Index leer/kein Treffer.")
 
 
 def main() -> int:
     if len(sys.argv) < 2:
         print("Nutzung: python tools/check_dedup.py <datei-oder-ordner>")
         return 2
-    import chromadb
-    from chromadb.utils import embedding_functions
-    import os
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=os.environ.get("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"))
-    client = chromadb.PersistentClient(path=str(DB_DIR))
-    col = client.get_collection(COLLECTION, embedding_function=ef)
+    from vector_ef import get_embedding_function, get_client
+    ef = get_embedding_function()
+    col = get_client().get_collection(COLLECTION, embedding_function=ef)
 
     target = (ROOT / sys.argv[1]).resolve()
     files = sorted(target.rglob("*.md")) if target.is_dir() else [target]

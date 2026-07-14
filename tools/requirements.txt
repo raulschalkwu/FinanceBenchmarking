@@ -1,5 +1,28 @@
 # Abhängigkeiten für den KI-Layer (Vektor-Sync + Dedup).
 # Der Link-Check (check_links.py) und die Schreibbereich-Kontrolle
 # (check_write_scope.py) brauchen KEINE Abhängigkeiten – reines Python.
+
+# Pflicht: ChromaDB. Nutzt standardmäßig sein eingebautes ONNX-MiniLM-Modell
+# (all-MiniLM-L6-v2) – KEIN PyTorch nötig, ~80 MB Modell-Cache, plattform-robust.
 chromadb>=0.5
-sentence-transformers>=3.0
+
+# Für die Web-GUI (tools/gui.py): PDF-Text extrahieren. Leicht, kein PyTorch.
+pypdf>=4.0
+
+# Verständnis-Schritt (tools/summarize.py): Rohtext -> saubere, vernetzte Notiz.
+# Braucht ANTHROPIC_API_KEY in der Umgebung.
+anthropic>=0.40
+
+# Shepherd-Agent (tools/shepherd_mcp.py): MCP-Server, über den sich private
+# KI-Agenten (Claude Code/Desktop, Cursor, ...) mit dem Vault verbinden.
+mcp>=1.0
+
+# Graph-Insights (tools/graph_insights.py): latente Themen + indirekte
+# Verbindungen aus den Embeddings. Leicht, kein PyTorch.
+networkx>=3.0
+scikit-learn>=1.3
+
+# Optional: nur nötig, wenn ihr über EMBED_MODEL einen eigenen
+# sentence-transformers-Encoder einhängt (statt des ONNX-Defaults).
+# Achtung: zieht PyTorch. Auf Intel-macOS ggf. Versionen pinnen.
+# sentence-transformers>=3.0

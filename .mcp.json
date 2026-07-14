@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vault-shepherd": {
+      "command": ".venv/bin/python",
+      "args": ["tools/shepherd_mcp.py"]
+    }
+  }
+}

@@ -46,19 +46,23 @@ def chunks(text: str) -> list[str]:
 
 
 def build():
-    import chromadb
-    from chromadb.utils import embedding_functions
+    from vector_ef import (get_embedding_function, ef_label,
+                           get_client, client_label)
 
-    DB_DIR.mkdir(exist_ok=True)
-    client = chromadb.PersistentClient(path=str(DB_DIR))
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBED_MODEL)
+    client = get_client()
+    ef = get_embedding_function()
     # Voll-Reindex: Collection frisch aufbauen (Vault ist klein -> unkompliziert,
     # räumt automatisch gelöschte/verschobene Dateien auf).
     try:
         client.delete_collection(COLLECTION)
     except Exception:
         pass
-    col = client.create_collection(COLLECTION, embedding_function=ef)
+    # WICHTIG: Cosine-Space erzwingen. Chroma-Default ist L2 – dann stimmt die
+    # Annahme "sim = 1 - distance" in check_dedup/promote NICHT und die Werte
+    # sind stark verzerrt.
+    col = client.create_collection(
+        COLLECTION, embedding_function=ef,
+        metadata={"hnsw:space": "cosine"})
 
     ids, docs, metas = [], [], []
     for p in canon_files():
@@ -71,7 +75,7 @@ def build():
     if ids:
         col.add(ids=ids, documents=docs, metadatas=metas)
     print(f"Indexiert: {len(ids)} Chunks aus {len(canon_files())} Kanon-Notizen "
-          f"(Modell: {EMBED_MODEL}) -> {DB_DIR}")
+          f"(Modell: {ef_label()}) -> {client_label()}")
 
 
 def main() -> int:

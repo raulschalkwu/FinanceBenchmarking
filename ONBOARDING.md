@@ -79,7 +79,31 @@ Zwei Wege:
 - **Promotion-Request-Issue** öffnen (Template *Promotion request*), wenn du
   selbst keinen sauberen Kanon-PR bauen willst — der Maintainer übernimmt.
 
-## 6. Dein lokaler KI-Layer (optional, für Retrieval/Dedup)
+## 5b. Deinen KI-Agenten verbinden (Shepherd via MCP)
+Der Vault bringt einen **Shepherd-Agenten** mit (`tools/shepherd_mcp.py` +
+`.mcp.json` im Root). Wenn du deinen Agenten (Claude Code, Claude Desktop,
+Cursor, …) **im Vault-Ordner** öffnest, findet er den Shepherd automatisch und
+kann damit: `vault_search`, `fulltext_search`, `dedup_check`, `read_note`,
+`submit_draft` (nur in deinen Silo!), `promotion_plan`, `vault_rules`.
+Einzige Voraussetzung: einmal den KI-Layer einrichten (Schritt 6). Beim ersten
+Start fragt dein Agent einmalig, ob der Projekt-MCP-Server erlaubt ist.
+
+## 6a. Zentrale ChromaDB (empfohlen: alle nutzen denselben Index)
+Statt dass jeder lokal indexiert, gibt es EINE zentrale ChromaDB. Setz in deiner
+Shell (oder `~/.zshrc`):
+```bash
+export CHROMA_HOST=chroma.wu.ac.at   # Hostname des Instituts-Servers
+export CHROMA_PORT=8000               # optional (Default 8000)
+```
+Danach laufen embed_sync/check_dedup/promote/GUI/Shepherd automatisch gegen den
+Server – **du musst nichts mehr selbst indexieren**. Ohne `CHROMA_HOST` fällt
+alles auf die lokale `.vectordb` zurück (Solo-Modus).
+
+Server aufsetzen (einmalig, Maintainer, auf dem Instituts-Server):
+`CHROMA_DATA=/daten/vault-chroma bash tools/chroma_serve.sh`, dann EINMAL
+`CHROMA_HOST=localhost .venv/bin/python tools/embed_sync.py`.
+
+## 6b. Dein lokaler KI-Layer (Fallback ohne zentrale DB)
 Rein lokal, wird nie geteilt (`.vectordb/` ist in `.gitignore`):
 ```bash
 python -m venv .venv && source .venv/bin/activate
