@@ -202,14 +202,14 @@ def arxiv_recent(max_results: int = 150) -> list[dict]:
 
 
 def build_pool(terms: list[str] | None, fetch: int = 25,
-               recent: int = 150) -> list[dict]:
+               recent: int = 100) -> list[dict]:
     """Kandidaten-Pool = neueste Kategorie-Einreichungen (wortunabhängig)
     + optional ein Stichwort-Netz, das auch ältere, sehr passende Papers
     hereinholt. Dedup über normalisierte Titel."""
     pool = arxiv_recent(recent)
     seen = {_norm_title(c["title"]) for c in pool}
     if terms:
-        time.sleep(3)  # arXiv-Etikette
+        time.sleep(1)  # arXiv-Etikette (kurz, interaktiv)
         for c in arxiv_search(terms[:3], fetch, joiner="OR"):
             nt = _norm_title(c["title"])
             if nt not in seen:

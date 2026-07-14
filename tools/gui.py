@@ -244,25 +244,34 @@ a.btn.gray{background:#6b7280}
 details{margin:.8rem 0}
 details summary{cursor:pointer;color:var(--mut);font-weight:600}
 /* Loading overlay */
-#load{display:none;position:fixed;inset:0;background:#0008;z-index:9;
-  align-items:center;justify-content:center;flex-direction:column;gap:1rem;color:#fff}
+#load{display:none;position:fixed;inset:0;background:rgba(120,130,150,.35);
+  backdrop-filter:blur(2px);z-index:9;align-items:center;justify-content:center}
 #load.on{display:flex}
-.spin{width:44px;height:44px;border:4px solid #fff4;border-top-color:#fff;border-radius:50%;
+#load .box{background:var(--acc);color:#fff;border-radius:14px;padding:1.6rem 2rem;
+  display:flex;flex-direction:column;align-items:center;gap:.8rem;max-width:22rem;text-align:center;
+  box-shadow:0 12px 40px #0006}
+.spin{width:40px;height:40px;border:4px solid #ffffff55;border-top-color:#fff;border-radius:50%;
   animation:r 0.9s linear infinite}
 @keyframes r{to{transform:rotate(360deg)}}
-.steps{font-size:.9rem;opacity:.85;text-align:center;line-height:1.8}
+.steps{font-size:.85rem;opacity:.9;line-height:1.5}
 """
 
 LOADING_HTML = """
-<div id='load'><div class='spin'></div>
-  <div><b>Analysiere …</b></div>
-  <div class='steps'>1. Text extrahieren · 2. KI liest &amp; fasst zusammen (≈ 30–60&nbsp;s)<br>
-  3. Duplikat-Prüfung · 4. Ablage-Vorschlag</div>
-</div>
+<div id='load'><div class='box'>
+  <div class='spin'></div>
+  <div><b id='load-title'>Verarbeite …</b></div>
+  <div class='steps' id='load-steps'>Einen Moment.</div>
+</div></div>
 <script>
-function showLoad(){document.getElementById('load').classList.add('on')}
-document.querySelectorAll("form[data-load]").forEach(f=>f.addEventListener("submit",showLoad));
-</script>
+function showLoad(title, steps){
+  document.getElementById('load-title').textContent = title || 'Verarbeite …';
+  document.getElementById('load-steps').innerHTML = steps || 'Einen Moment.';
+  document.getElementById('load').classList.add('on');
+}
+document.querySelectorAll("form[data-load]").forEach(f=>f.addEventListener("submit",()=>
+  showLoad('KI analysiert', 'Text extrahieren, zusammenfassen, Duplikat-Pruefung. Das kann ~30-60 s dauern.')));
+document.querySelectorAll("form[data-scout]").forEach(f=>f.addEventListener("submit",()=>
+  showLoad('Suche auf arXiv', 'Neueste Papers holen und semantisch gegen deinen Vault ranken. ~10-15 s.')));
 """
 
 
@@ -287,7 +296,7 @@ def home():
     so = scout_options()
     if so.get("clusters"):
         scout_clusters = "<div style='display:flex;flex-wrap:wrap;gap:.4rem'>" + "".join(
-            f"<form method='POST' action='/scout' data-load style='margin:0'>"
+            f"<form method='POST' action='/scout' data-scout style='margin:0'>"
             f"<input type='hidden' name='mode' value='cluster'>"
             f"<input type='hidden' name='sort' value='relevance'>"
             f"<input type='hidden' name='cluster' value='{c['idx']}'>"
@@ -352,7 +361,7 @@ def home():
       {scout_clusters}
 
       <label style='margin-top:1rem'>📄 Mehr wie ein bestimmtes Paper</label>
-      <form method='POST' action='/scout' data-load style='display:flex;gap:.5rem'>
+      <form method='POST' action='/scout' data-scout style='display:flex;gap:.5rem'>
         <input type='hidden' name='mode' value='note'>
         <input type='hidden' name='sort' value='relevance'>
         <select name='note' style='flex:1'>{scout_notes}</select>
@@ -360,7 +369,7 @@ def home():
       </form>
 
       <label style='margin-top:1rem'>🔤 Oder frei nach Thema</label>
-      <form method='POST' action='/scout' data-load style='display:flex;gap:.5rem'>
+      <form method='POST' action='/scout' data-scout style='display:flex;gap:.5rem'>
         <input type='hidden' name='mode' value='query'>
         <input type='hidden' name='sort' value='relevance'>
         <input name='query' type='text' placeholder='z. B. implied cost of capital machine learning' style='flex:1' required>
