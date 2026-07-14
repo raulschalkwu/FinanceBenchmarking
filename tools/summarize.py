@@ -190,6 +190,87 @@ def sanitize_links(note: str, allowed: set[str]) -> str:
     return re.sub(r"\[\[([^\]]+)\]\]", repl, note)
 
 
+def distill(conversation: str, participants: str = "", date_str: str = "",
+            title_hint: str = "") -> tuple[str, dict]:
+    """Destilliert eine User<->Agent-Konversation zu EINER strukturierten
+    Forschungs-Notiz. Bewusst KEIN Transkript: nur das, was sonst verloren geht
+    – Entscheidungen + Begründung, verworfene Ansätze, offene Fragen, Ideen.
+
+    Rückgabe wie summarize(): (note, route). Ziel ist typischerweise
+    '09 Open Questions' oder '08 Research Ideas'. Provenienz steht im Frontmatter
+    (source: conversation), damit destillierte Diskussionen von kuratierten
+    Paper-Notizen unterscheidbar bleiben.
+    """
+    import anthropic
+    allowed = all_note_stems()
+    near = nearest_notes(conversation)
+    allowed_block = "\n".join(f"- {s}" for s in allowed)
+    near_block = ", ".join(f"[[{s}]]" for s in near) or "(keine)"
+    folders = canon_folders()
+    targets = backlink_targets()
+
+    system = (
+        "Du bist Redakteur einer geteilten Obsidian-Research-Wissensdatenbank "
+        "(Institute for Accounting & Auditing, WU Wien; Thema AI/ML in Valuation "
+        "& Accounting). Du destillierst eine Konversation zwischen einem "
+        "Forscher und einem KI-Agenten zu EINER Forschungs-Notiz.\n\n"
+        "HARTE REGELN:\n"
+        "1. Gib NUR die Markdown-Notiz aus, nichts davor/danach.\n"
+        "2. KEIN Transkript, KEIN Nacherzählen des Gesprächsverlaufs. Extrahiere "
+        "nur bleibendes Forschungswissen.\n"
+        "3. Struktur exakt: Frontmatter (title, created, source: conversation, "
+        "participants, tags), H1, dann ## Fragestellung, ## Erkenntnisse, "
+        "## Entscheidung & Begründung, ## Verworfene Ansätze, ## Offene Fragen, "
+        "## Related.\n"
+        "4. Lass eine Sektion WEG, wenn das Gespräch dazu nichts hergibt – "
+        "erfinde nichts. Wenn substanziell nichts Bleibendes drinsteht, gib nur "
+        "'LEER' aus (dann wird nichts gespeichert).\n"
+        "5. [[Wikilinks]] NUR aus der erlaubten Liste. Erfinde NIE einen Link. "
+        "In ## Related mindestens einen passenden Stream/Map, falls vorhanden.\n"
+        "6. Deutsch schreiben, Fachbegriffe im Original.\n"
+        "7. ALLERERSTE Zeile (vor dem Frontmatter) ist die Ablage-Empfehlung:\n"
+        '   ROUTE: folder="<Kanon-Ordner>" backlink="<Pfad aus Backlink-Liste>"\n'
+        "   Wähle den Ordner nach Schwerpunkt: offene Fragen -> 09 Open "
+        "Questions, neue Idee -> 08 Research Ideas; sonst der passendste.\n"
+    )
+    user = (
+        f"KANON-ORDNER (für ROUTE folder):\n"
+        + "\n".join(f"- {f}" for f in folders) + "\n\n"
+        f"BACKLINK-ZIELE (für ROUTE backlink, exakter Pfad):\n"
+        + "\n".join(f"- {t}" for t in targets) + "\n\n"
+        f"SEMANTISCH NÄCHSTE BESTEHENDE NOTIZEN (bevorzugt als Links prüfen):\n"
+        f"{near_block}\n\n"
+        f"ERLAUBTE WIKILINK-ZIELE (nur diese Namen sind gültige Links):\n"
+        f"{allowed_block}\n\n"
+        f"METADATEN: Titel-Hinweis='{title_hint}', Teilnehmer='{participants}', "
+        f"Datum='{date_str}'\n\n"
+        f"KONVERSATION (destillieren, NICHT nacherzählen):\n"
+        f"{conversation[:MAX_CHARS]}"
+    )
+    client = anthropic.Anthropic()
+    msg = client.messages.create(
+        model=MODEL, max_tokens=4096, system=system,
+        messages=[{"role": "user", "content": user}])
+    note = "".join(b.text for b in msg.content
+                   if getattr(b, "type", "") == "text")
+    if msg.stop_reason == "max_tokens":
+        raise RuntimeError("Destillat abgeschnitten (max_tokens) – nicht gespeichert.")
+    if note.strip().upper().startswith("LEER") or "LEER" == note.strip().upper():
+        raise RuntimeError("Konversation ohne bleibendes Forschungswissen – "
+                           "nichts destilliert.")
+    route = {}
+    m = re.match(r'^\s*ROUTE:\s*folder="([^"]*)"\s*backlink="([^"]*)"\s*\n', note)
+    if m:
+        note = note[m.end():]
+        if m.group(1) in folders:
+            route["folder"] = m.group(1)
+        if m.group(2) in targets:
+            route["backlink"] = m.group(2)
+    if "## Related" not in note:
+        raise RuntimeError("Destillat unvollständig (## Related fehlt).")
+    return sanitize_links(note.strip(), set(allowed)), route
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("Nutzung: summarize.py <rohtext.md>")

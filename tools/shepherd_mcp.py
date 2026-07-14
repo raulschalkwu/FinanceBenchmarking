@@ -115,6 +115,41 @@ def submit_draft(silo: str, title: str, content: str) -> str:
 
 
 @mcp.tool()
+def distill_discussion(silo: str, conversation: str, participants: str = "",
+                       title: str = "") -> str:
+    """Eine User<->Agent-Konversation zu EINER Forschungs-Notiz destillieren und
+    als Draft im eigenen Silo ablegen. Bewusst KEIN Transkript – nur bleibendes
+    Wissen: Fragestellung, Erkenntnisse, Entscheidung+Begründung, verworfene
+    Ansätze, offene Fragen. Nur auf ausdrücklichen Wunsch des Users am
+    Gesprächsende aufrufen (opt-in), nie automatisch mitschneiden.
+
+    Danach normaler Weg: committen/pushen + promotion_plan. In den Kanon (z. B.
+    '09 Open Questions' / '08 Research Ideas') kommt es erst über Maintainer-
+    Promotion. Braucht ANTHROPIC_API_KEY in der Umgebung."""
+    import datetime
+    from summarize import distill
+    silo_clean = re.sub(r"[^\w.-]", "", silo)
+    if not silo_clean:
+        return "FEHLER: ungültiger Silo-Name."
+    date_str = datetime.date.today().isoformat()
+    try:
+        note, route = distill(conversation, participants, date_str, title)
+    except Exception as e:
+        return f"FEHLER beim Destillieren: {e}"
+    # Titel aus H1 der Notiz ziehen, sonst Fallback.
+    m = re.search(r"^#\s+(.+)$", note, re.MULTILINE)
+    fname = re.sub(r'[\\/:*?"<>|]', "", (m.group(1) if m else title
+                   or "Diskussion")).strip() or "Diskussion"
+    d = ROOT / "drafts" / silo_clean
+    d.mkdir(parents=True, exist_ok=True)
+    dest = d / f"{fname}.md"
+    dest.write_text(note, encoding="utf-8")
+    rel = f"drafts/{silo_clean}/{fname}.md"
+    return (f"Destillat angelegt: {rel}\nROUTE-Vorschlag: {route}\n"
+            f"Nächster Schritt: committen/pushen, dann promotion_plan('{rel}')")
+
+
+@mcp.tool()
 def promotion_plan(draft_path: str) -> str:
     """Promotion-Analyse für einen Draft: Duplikat? Welcher Kanon-Ordner?
     Welches Backlink-Ziel? (Führt tools/promote.py plan aus.)"""

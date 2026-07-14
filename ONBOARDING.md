@@ -84,7 +84,9 @@ Der Vault bringt einen **Shepherd-Agenten** mit (`tools/shepherd_mcp.py` +
 `.mcp.json` im Root). Wenn du deinen Agenten (Claude Code, Claude Desktop,
 Cursor, …) **im Vault-Ordner** öffnest, findet er den Shepherd automatisch und
 kann damit: `vault_search`, `fulltext_search`, `dedup_check`, `read_note`,
-`submit_draft` (nur in deinen Silo!), `promotion_plan`, `vault_rules`.
+`submit_draft` (nur in deinen Silo!), `distill_discussion` (eine Konversation
+zu einer Forschungs-Notiz destillieren – opt-in, kein Transkript),
+`promotion_plan`, `vault_rules`.
 Einzige Voraussetzung: einmal den KI-Layer einrichten (Schritt 6). Beim ersten
 Start fragt dein Agent einmalig, ob der Projekt-MCP-Server erlaubt ist.
 
