@@ -1,0 +1,51 @@
+name: Graph Insights
+
+# BEWUSST getrennt von "Vault Checks": dieser Job braucht das Embedding-Modell
+# und einen frisch gebauten ChromaDB-Index – deshalb läuft er NICHT bei jedem
+# PR, sondern nur manuell (workflow_dispatch) oder nach Zeitplan.
+#
+# Er baut den Index lokal im Runner auf (ephemer), rechnet die Insights und legt
+# _Insights.md als Artefakt ab. Nichts wird in den Kanon committet – die Befunde
+# sind Vorschläge für Maintainer (neue Maps / Verlinkungen).
+#
+# Zentrale ChromaDB: wer einen erreichbaren Server hat, kann CHROMA_HOST als
+# Repository-Variable setzen; dann entfällt der lokale Reindex-Schritt (der Job
+# nutzt den vorhandenen zentralen Index).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Montags 05:00 UTC – wöchentlicher Frischestand.
+    - cron: "0 5 * * 1"
+
+jobs:
+  insights:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten (ChromaDB + Embedding-ONNX)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tools/requirements.txt
+
+      - name: Index bauen (nur ohne zentralen Server)
+        if: ${{ vars.CHROMA_HOST == '' }}
+        run: python tools/embed_sync.py
+
+      - name: Graph-Insights berechnen
+        env:
+          CHROMA_HOST: ${{ vars.CHROMA_HOST }}
+          CHROMA_PORT: ${{ vars.CHROMA_PORT }}
+        run: python tools/graph_insights.py
+
+      - name: _Insights.md als Artefakt ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-insights
+          path: _Insights.md
+          if-no-files-found: error

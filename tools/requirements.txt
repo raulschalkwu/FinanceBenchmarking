@@ -17,6 +17,11 @@ anthropic>=0.40
 # KI-Agenten (Claude Code/Desktop, Cursor, ...) mit dem Vault verbinden.
 mcp>=1.0
 
+# Graph-Insights (tools/graph_insights.py): latente Themen + indirekte
+# Verbindungen aus den Embeddings. Leicht, kein PyTorch.
+networkx>=3.0
+scikit-learn>=1.3
+
 # Optional: nur nötig, wenn ihr über EMBED_MODEL einen eigenen
 # sentence-transformers-Encoder einhängt (statt des ONNX-Defaults).
 # Achtung: zieht PyTorch. Auf Intel-macOS ggf. Versionen pinnen.
